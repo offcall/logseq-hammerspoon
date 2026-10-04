@@ -12,13 +12,17 @@ corner of the screen.
 ## Environment
 
 - Hammerspoon; the script is loaded from `~/.hammerspoon/init.lua`.
-- Logseq (DB version), graph `Personal`, dashboard page `Dashboard`.
-- Logseq CLI at `/Users/alec/.local/bin/logseq`. It is a node script and needs the
-  login-shell `PATH`; the script captures the env once via
-  `hs.execute("/usr/bin/env", true)`.
-- The UI is in English. Talk to the user in Russian; write all artifacts in English.
+- Logseq (DB version). Graph, dashboard page, and CLI path are configured at the top
+  of the script (currently graph `Personal`, dashboard `Dashboard`, CLI
+  `~/.local/bin/logseq`).
+- The CLI is a node script and needs the login-shell `PATH`; the script captures the
+  env once via `hs.execute("/usr/bin/env", true)`.
+- UI and all artifacts are in English; talk to the user in Russian.
 
 ## Script architecture
+
+The script is not committed yet. This section and the next describe the existing
+local script that will be imported; until then, do not create code to match them.
 
 One Lua file; the panels' HTML/CSS/JS is embedded as long strings (`[==[ ... ]==]`).
 
@@ -39,7 +43,7 @@ One Lua file; the panels' HTML/CSS/JS is embedded as long strings (`[==[ ... ]==
 
 ## Working with Logseq
 
-- Only through the official CLI: `logseq --graph Personal --output json <cmd> ...`.
+- Only through the official CLI: `logseq --graph <graph> --output json <cmd> ...`.
   No direct edits of graph files, no HTTP API.
 - Calls are async (`hs.task`) and strictly sequential: queue `S.queue` + `pump()`.
   Timeout `CLI_TIMEOUT` (the first call may start the db-worker).
@@ -49,7 +53,7 @@ One Lua file; the panels' HTML/CSS/JS is embedded as long strings (`[==[ ... ]==
 - Commands in use: `query`; `upsert task` (`--uuid` / `--id`, `--status`,
   `--deadline` / `--scheduled` in epoch ms, `--no-deadline` / `--no-scheduled`);
   `upsert block --content` (journal note); `upsert page --page`.
-- Opening in the app: `logseq://graph/Personal?block-id=...` / `?page=...`.
+- Opening in the app: `logseq://graph/<graph>?block-id=...` / `?page=...`.
 - Done tasks leave the query, so "Done today" is stored locally in `hs.settings`
   (`logseqCapture.doneToday`) and reset when the day changes.
 
@@ -91,8 +95,9 @@ Respect the existing architecture unless an ADR documents a reason to change it.
 
 ## ADR rules
 
-`docs/adr/` is the persistent architectural memory of the repository. Before
-implementing a significant architectural decision:
+`docs/adr/` is the persistent architectural memory of the repository. A decision
+that materially affects architecture, dependencies, interfaces, or workflow needs a
+new ADR before or together with the implementation. For such a decision:
 
 1. Inspect existing ADRs.
 2. Check whether the decision is already documented.
@@ -102,7 +107,8 @@ implementing a significant architectural decision:
 
 ## Incremental development
 
-Work in small steps: inspect → plan → implement → validate → commit → report.
+Work in small steps: inspect → plan → implement → validate → commit and push →
+report.
 
 - One logical change per commit.
 - Conventional Commit messages: `<type>(<scope>): <short description>`, lowercase
