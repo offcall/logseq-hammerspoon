@@ -21,14 +21,14 @@ How agents work
 2. Plan: pick the smallest change that solves the task.
 3. Implement: minimal diff, no unrelated refactors or reformatting.
 4. Validate: reload Hammerspoon and check the console ("[Logseq Panel]" logs).
-5. Commit: one logical change, Conventional Commit message.
+5. Commit and push: one logical change, Conventional Commit message, push to main.
 6. Report: tell the user what changed and what is next.
 
 Architecture decisions
 ----------------------
 - Architecture Decision Records live in docs/adr/ (see ADR 0001).
-- A decision that affects architecture, dependencies, interfaces, or workflow
-  needs a new ADR before or together with the implementation.
+- A decision that materially affects architecture, dependencies, interfaces, or
+  workflow needs a new ADR before or together with the implementation.
 - Historical ADRs are never rewritten; changed decisions supersede them.
 
 Persistent rules for agents are in AGENTS.md.
