@@ -29,6 +29,6 @@ ADRs are numbered sequentially (`NNNN-short-title.md`) and listed in
 
 - Important decisions remain discoverable in the repository.
 - Future developers and agents can understand why a decision was made.
-- Architectural changes require a new ADR that supersedes the old one rather than
-  silently rewriting historical decisions.
+- A changed decision gets a new ADR that supersedes the old one; accepted ADRs are
+  not rewritten.
 - ADR documentation becomes part of the normal development workflow.
