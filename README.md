@@ -4,8 +4,8 @@ Control [Logseq](https://logseq.com/) from macOS with [Hammerspoon](https://www.
 
 ## What it is
 
-A Hammerspoon Lua script that adds a quick capture and "today" panel for a Logseq
-(DB version) graph:
+A Hammerspoon Lua script (not yet in this repository) that adds a quick capture and
+"today" panel for a Logseq (DB version) graph:
 
 - **Capture panel** — opens from the bottom-right hot corner. Type a note, a task for
   today or tomorrow, a backlog task, or a new page, and send it to Logseq with a
@@ -28,8 +28,10 @@ edit graph files directly.
 ## Requirements
 
 - macOS with Hammerspoon
-- Logseq (DB version) and its CLI
+- Logseq (DB version) and its CLI (requires Node.js on the login-shell `PATH`)
 - A graph to work with (configured at the top of the script)
+
+Installation steps will be added together with the script.
 
 ## Status and direction
 
