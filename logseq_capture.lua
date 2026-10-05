@@ -2069,6 +2069,11 @@ function closePanel() {
 /* EVENTS                                                   */
 /* ======================================================== */
 
+document.documentElement.addEventListener('mouseleave', () => {
+    // Let an in-flight submission finish before hiding its webview.
+    if (!st.closing) post({ action: 'close' });
+});
+
 input.addEventListener('input', resizeInput);
 input.addEventListener('focus', () => { st.menu = null; renderFoot(); });
 input.addEventListener('blur', renderFoot);
