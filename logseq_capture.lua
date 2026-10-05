@@ -18,7 +18,8 @@
 --   ⌘Z           → undo last action       ⌘R       → refresh
 --   / or n       → back to the input      Esc      → close menu / panel
 --
--- PEEK: a small pill bottom-right with your current "Doing" task.
+-- PEEK: a small pill bottom-right with your current "Doing" task;
+-- slides right on hover to reveal the screen underneath.
 --
 -- Talks to Logseq only through the official CLI (`logseq … --output json`),
 -- asynchronously via hs.task, one command at a time.
@@ -141,6 +142,7 @@ _G.logseqCapture = {
     pendingShow = false,
     visible = false,
     peekVisible = false,
+    peekHovered = false,
     lastHeight = MIN_HEIGHT,
 
     cornerArmed = true,
@@ -173,6 +175,12 @@ end
 
 local function trim(value)
     return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+
+local function containsPoint(frame, point)
+    return point.x >= frame.x and point.x < frame.x + frame.w
+        and point.y >= frame.y and point.y < frame.y + frame.h
 end
 
 
@@ -708,9 +716,33 @@ end
 
 
 local function hidePeek()
+    if S.peekHovered then
+        S.peekHovered = false
+        jsPeek("peek.setHovered(false)")
+    end
+
     if S.peek and S.peekVisible then
         S.peek:hide()
         S.peekVisible = false
+    end
+end
+
+
+local function updatePeekHover(position)
+    if not S.peek or not (S.peekVisible or S.peekHovered) then
+        return
+    end
+
+    -- Keep using the original frame even while the webview is hidden.
+    local hovered = containsPoint(S.peek:frame(), position)
+
+    if hovered ~= S.peekHovered then
+        S.peekHovered = hovered
+        jsPeek("peek.setHovered(" .. tostring(hovered) .. ")")
+
+        if not hovered then
+            updatePeek()
+        end
     end
 end
 
@@ -775,6 +807,10 @@ updatePeek = function()
     }) .. ")")
 
     positionPeek()
+
+    if S.peekHovered then
+        return
+    end
 
     if not S.peekVisible then
         S.peek:show()
@@ -2340,6 +2376,8 @@ body { padding: 8px; }
 (function () {
 'use strict';
 let task = null;
+let hoverAnimation = null;
+const pill = document.querySelector('.pill');
 function post(m) {
     try { window.webkit.messageHandlers.logseqPeek.postMessage(m); } catch (e) { console.error(e); }
 }
@@ -2356,6 +2394,16 @@ function cleanTitle(raw, refs) {
     return t || host || 'Untitled';
 }
 window.peek = {
+    setHovered(on) {
+        if (hoverAnimation) hoverAnimation.cancel();
+        hoverAnimation = pill.animate(
+            on
+                ? [{ transform: 'translateX(0)' }, { transform: 'translateX(110%)' }]
+                : [{ transform: 'translateX(110%)' }, { transform: 'translateX(0)' }],
+            { duration: 150, easing: 'ease-out', fill: 'forwards' }
+        );
+        if (on) hoverAnimation.onfinish = () => post({ action: 'hoverHidden' });
+    },
     set(d) {
         task = d;
         document.getElementById('ttl').textContent = cleanTitle(d.title, d.refs);
@@ -2522,6 +2570,10 @@ local function createPeek()
             updatePeek()
         elseif body.action == "expand" then
             showCapture()
+        elseif body.action == "hoverHidden" and S.peekHovered then
+            -- Hiding the native window lets clicks reach the app underneath.
+            S.peek:hide()
+            S.peekVisible = false
         elseif body.action == "update" then
             handleUpdate(body)
         end
@@ -2643,6 +2695,7 @@ requestRefresh()
 
 S.cornerTimer = hs.timer.doEvery(0.10, function()
     local position = hs.mouse.absolutePosition()
+    updatePeekHover(position)
     local screen = hs.mouse.getCurrentScreen()
 
     if not screen then
