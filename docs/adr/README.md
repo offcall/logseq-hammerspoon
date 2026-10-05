@@ -7,3 +7,4 @@ gets a new ADR that supersedes the old one.
 | ADR | Title | Status |
 | --- | ----- | ------ |
 | [0001](0001-use-architecture-decision-records.md) | Use Architecture Decision Records | Accepted |
+| [0002](0002-load-script-from-repository.md) | Load the script from the repository | Accepted |
