@@ -31,6 +31,22 @@ edit graph files directly.
 - Logseq (DB version) and its CLI (requires Node.js on the login-shell `PATH`)
 - A graph to work with (configured at the top of the script)
 
+## Install or update
+
+Configure the CLI path, graph, and dashboard at the top of `logseq_capture.lua`,
+then run from the repository:
+
+```sh
+./install.sh
+```
+
+The [installer](install.sh) copies `logseq_capture.lua` to
+`~/.hammerspoon/init.lua`, saving the previous config as
+`~/.hammerspoon/init.lua.backup.XXXXXX`. It replaces the entire config, then quits
+and starts Hammerspoon to load the updated file. Run the same command after each
+update. No Hammerspoon CLI setup is required; macOS may ask you to allow your
+terminal to control Hammerspoon on the first run.
+
 ## Status and direction
 
 The script is developed in small, incremental steps. Significant decisions are recorded as Architecture
