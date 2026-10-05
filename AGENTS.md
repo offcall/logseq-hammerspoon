@@ -1,13 +1,17 @@
 # AGENTS.md
 
-Persistent instructions for coding agents in this repository. See `agent.cmd` for
-the project direction and `docs/adr/` for architectural decisions.
+Persistent instructions for coding agents in this repository. See `docs/adr/` for
+architectural decisions.
 
 ## Project
 
 Control Logseq from macOS with [Hammerspoon](https://www.hammerspoon.org/). The main
 artifact is a single Lua script, `logseq_capture.lua`, with a "Capture + Today" panel
 in the bottom-right corner of the screen.
+
+The project grows by small, useful features on top of the official Logseq CLI, not
+by rewrites. Agents implement one requested task at a time and keep the script
+working after every change.
 
 ## Environment
 
