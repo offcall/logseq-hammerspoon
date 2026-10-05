@@ -1,243 +1,154 @@
 ---
 name: adr-repository-initialization
-description: Initializes an existing GitHub repository for ADR-driven development. Use only when the user explicitly writes "init ADR in this repository" and provides a repository URL.
+description: Initializes an existing GitHub repository for ADR-driven development (README, .gitignore, AGENTS.md, first ADR). Use only when the user explicitly writes "init ADR in this repository" and provides a repository URL. Do not trigger on general mentions of ADRs, READMEs, or repositories.
 ---
 
-# ADR Repository Initialization Skill
+# ADR Repository Initialization
 
 ## Purpose
 
-Initialize an existing GitHub repository for structured, ADR-driven development.
+Prepare an existing GitHub repository for structured, ADR-driven development:
+document the project, set repository hygiene, write persistent instructions
+for coding agents, and record the first Architecture Decision Record.
 
-This skill prepares the repository, establishes documentation and coding conventions, creates the first ADR, and defines how all future development must be performed.
+The repository URL comes from the user and is different every time. Never
+hardcode a repository, project name, or project purpose into the output.
 
-The repository URL is provided by the user and may be different every time.
+## Trigger
 
-Example:
+Run this skill only when the user explicitly writes:
 
-`https://github.com/offcall/logseq-hammerspoon`
+`init ADR in this repository <repository-url>`
 
----
+Do not infer this intent when the user merely mentions ADRs, shares a
+repository, asks for a README, or asks to initialize or document a project.
 
-## Explicit Trigger
-
-This skill MUST run only when the user explicitly writes:
-
-`init ADR in this repository`
-
-Do not infer this intent from similar requests.
-
-Do not automatically invoke this skill when the user merely:
-
-- mentions ADRs;
-- provides a GitHub repository;
-- asks to modify a repository;
-- asks to create a README;
-- asks to initialize a project;
-- asks to document architectural decisions.
-
-The exact initialization intent must be explicitly provided by the user.
+If the command is given without a URL, ask for the URL before doing anything.
 
 ---
 
-## Input
+## Core Rules
 
-The skill expects:
+### Orchestration and subagents
 
-1. A GitHub repository URL.
-2. The explicit command:
+When the environment supports subagents, the main agent orchestrates and
+delegates implementation work. When it does not, the main agent does the work
+itself, following the same steps.
 
-   `init ADR in this repository`
+The main agent is responsible for planning, sequencing, deciding what context
+each subagent needs, validating results, committing, and reporting to the user.
 
-Example:
+For each delegated task:
 
-`init ADR in this repository https://github.com/offcall/logseq-hammerspoon`
+- give the subagent only the context required for that task;
+- ask it to inspect the relevant repository files before changing anything;
+- review its output before committing; do not commit unreviewed changes.
 
-The repository URL must NOT be hardcoded because a different repository may be supplied next time.
+### Git safety
 
----
+- Inspect the repository state (`git status`, branches, existing files) before
+  modifying anything.
+- Work on `main` and push completed commits to `main`, unless the repository
+  has branch protection or other constraints. In that case, use a branch and
+  tell the user.
+- Never force-push, rewrite history, or delete files without explicit user
+  approval.
+- Never overwrite an existing useful file without reviewing it first; improve
+  it instead.
 
-# Core Execution Rules
+### Commits
 
-## 1. Use subagents
+One logical change per commit, using Conventional Commits:
 
-The main agent should act as an orchestrator.
+`<type>(<scope>): <short description>`
 
-Implementation work should be delegated to subagents whenever the environment supports subagents.
+- Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
+- Scope and description in lowercase, concise.
+- Do not combine unrelated work in one commit.
+- If a step produces no changes (the file is already adequate), skip its
+  commit and say so in the status update.
 
-The main conversation context should remain as clean as possible.
+### Language
 
-For every delegated task:
-
-- provide the subagent only the context required for that task;
-- retrieve additional repository context only when necessary;
-- avoid dumping the entire conversation into the subagent;
-- ask the subagent to inspect the relevant repository files before making changes;
-- return the result to the main agent for validation.
-
-The main agent remains responsible for:
-
-- planning;
-- sequencing;
-- validating work;
-- deciding what context subagents need;
-- reviewing changes before committing;
-- reporting progress to the user.
-
----
-
-# Repository Initialization
-
-After receiving the repository URL:
-
-1. Clone or open the repository.
-2. Inspect the existing repository before modifying anything.
-3. Never overwrite existing useful files without reviewing them.
-4. Work directly against the repository's `main` branch unless repository constraints require otherwise.
-5. Push completed initialization commits to `main`.
-6. Keep commits intentionally small and focused.
-
-Before any destructive or potentially unsafe Git operation, inspect the repository state first.
+All repository artifacts are written in English: code, identifiers, comments,
+documentation, ADRs, commit messages, tests, and agent instructions. Status
+updates to the user may use the user's language.
 
 ---
 
-# Commit Rules
+## Initialization Sequence
 
-All work must be divided into small, logically independent commits.
+Perform the steps in order. After each step, commit, push, and send a status
+update (see "Status Updates").
 
-Use Conventional Commit-style messages.
+### Step 0 — Open the repository
 
-Format:
+Clone the repository from the given URL, or open an existing local checkout.
+For an existing checkout, verify that `git remote get-url origin` points to
+the given URL; if it does not, stop and ask the user. Then inspect the
+repository state as described in "Git safety". This step has no commit.
 
-`<type>(<short task>): <short description>`
+### Step 1 — README.md
 
-Examples:
-
-`docs(readme): describe project purpose`
-
-`chore(gitignore): add repository ignore rules`
-
-`docs(agent): document development workflow`
-
-`docs(adr): adopt architecture decision records`
-
-Rules:
-
-- use lowercase task/scope names;
-- keep commit messages concise;
-- one logical change per commit;
-- do not combine unrelated work;
-- avoid large initialization commits when the work can be split;
-- push completed commits to `main`.
-
-Use appropriate commit types such as:
-
-- `feat`
-- `fix`
-- `docs`
-- `refactor`
-- `test`
-- `chore`
-
----
-
-# Initialization Sequence
-
-## Step 1 — README
-
-Create or improve `README.md`.
-
-The README must explain:
+Create or improve `README.md`. Base it only on what the repository and the
+user actually show. It should explain:
 
 - what the project is;
-- why it exists;
-- its current purpose;
-- the project's future direction when known;
-- how the repository is intended to evolve.
+- why it exists and what problem it solves;
+- its current state;
+- planned direction, only if known.
 
-For the example project, document that its purpose is related to AI-agent analytics if that remains consistent with the actual project context.
+Do not invent functionality, purpose, or roadmap. If the purpose cannot be
+determined from the code and existing docs, ask the user before writing it.
 
-Do not invent unsupported project functionality.
+Commit: `docs(readme): describe project purpose`
 
-Add only useful documentation.
+### Step 2 — .gitignore
 
-Commit separately.
+Detect the technology stack from existing files. Create or extend
+`.gitignore` to exclude dependencies, build output, generated files, local
+configuration, credentials and secrets, temporary files, and IDE/OS artifacts.
 
-Example:
+Extend an existing `.gitignore` rather than replacing it. If tracked files
+would now be ignored (for example a committed secret), report it to the user
+instead of silently untracking it.
 
-`docs(readme): describe project purpose`
+Commit: `chore(gitignore): add repository ignore rules`
 
----
+### Step 3 — AGENTS.md
 
-## Step 2 — .gitignore
+Create or update `AGENTS.md`. This is the single source of persistent
+instructions for coding agents. Preserve useful existing content.
 
-Inspect the technology stack and existing files.
+It must contain the sections from the "AGENTS.md Content" section below.
 
-Create or update `.gitignore` using rules appropriate for the repository.
+If the repository already has `CLAUDE.md` or other agent instruction files,
+do not duplicate rules across them. Keep the rules in `AGENTS.md` and make the
+other file reference it (for `CLAUDE.md`, a line containing `@AGENTS.md`).
 
-Do not blindly replace an existing `.gitignore`.
+Commit: `docs(agents): define agent development workflow`
 
-Ensure generated files, local configuration, dependencies, credentials, temporary files, IDE artifacts, and build outputs are excluded where appropriate.
+Present `AGENTS.md` to the user for review. Continue with the remaining
+initialization steps, but do not start development work (see "Development
+After Initialization") until the user has reviewed it.
 
-Commit separately.
+### Step 4 — ADR 0001
 
-Example:
+Create `docs/adr/` with:
 
-`chore(gitignore): add repository ignore rules`
+- `docs/adr/README.md` — a short index explaining what ADRs are in this
+  repository, the file naming scheme (`NNNN-kebab-case-title.md`), and a list
+  of existing ADRs;
+- `docs/adr/0001-use-architecture-decision-records.md` — the first ADR.
 
----
+If the repository already has ADRs or a decisions directory, adopt its
+location, naming, and numbering instead of creating a parallel one: add the
+ADR under the next free number, and skip it entirely if adopting ADRs is
+already recorded. Update the existing index rather than creating a new one.
 
-## Step 3 — agent.cmd
+Every ADR contains at least: Title, Status, Context, Decision, Consequences.
 
-Create:
-
-`agent.cmd`
-
-The file must describe:
-
-- the long-term direction of the project;
-- what coding agents are expected to do;
-- how agents should approach implementation;
-- that Architecture Decision Records are used;
-- that important architectural decisions must be documented;
-- that development should proceed incrementally;
-- that implementation should favor minimal changes.
-
-Before proceeding to major implementation work, present `agent.cmd` to the user for review when practical.
-
-Commit separately.
-
-Example:
-
-`docs(agent): define agent development workflow`
-
----
-
-# ADR Setup
-
-Create an ADR directory:
-
-`docs/adr/`
-
-Create an ADR index if useful:
-
-`docs/adr/README.md`
-
-Create the first ADR documenting the decision to use Architecture Decision Records.
-
-Recommended filename:
-
-`docs/adr/0001-use-architecture-decision-records.md`
-
-The ADR should contain at least:
-
-- Title
-- Status
-- Context
-- Decision
-- Consequences
-
-Example:
+Template for ADR 0001:
 
 ```md
 # ADR 0001: Use Architecture Decision Records
@@ -248,215 +159,155 @@ Accepted
 
 ## Context
 
-The project needs a lightweight and persistent way to document important architectural and engineering decisions.
-
-Decisions made only in conversations or agent contexts are easy to lose and difficult for future contributors or agents to reconstruct.
+The project needs a lightweight, persistent way to record important
+architectural and engineering decisions. Decisions made only in conversations
+or agent sessions are easily lost and hard to reconstruct later.
 
 ## Decision
 
-We will use Architecture Decision Records stored in `docs/adr/`.
+We will record architectural decisions as ADRs in `docs/adr/`.
 
-Important architectural decisions must be documented as ADRs.
-
-ADRs should be concise and focused on decisions that materially affect the architecture, development workflow, dependencies, interfaces, or long-term maintainability of the project.
+An ADR is required for decisions that materially affect architecture,
+development workflow, dependencies, interfaces, or long-term maintainability.
+ADRs are short and focused on one decision each.
 
 ## Consequences
 
-- Important decisions remain discoverable in the repository.
-- Future developers and agents can understand why a decision was made.
-- Architectural changes may require creating a new ADR rather than silently rewriting historical decisions.
-- ADR documentation becomes part of the normal development workflow.
+- Important decisions stay discoverable in the repository.
+- Future contributors and agents can see why a decision was made.
+- Accepted ADRs are not rewritten; a changed decision gets a new ADR that
+  supersedes the old one.
+- Writing ADRs becomes part of the normal development workflow.
 ```
 
-Commit separately.
+Commit: `docs(adr): adopt architecture decision records`
 
-Example:
+Present ADR 0001 to the user for review.
 
-`docs(adr): adopt architecture decision records`
+### Step 5 — Review pass (optional)
 
-After creating the initial ADR, surface it to the user for review.
+If review skills are available in the environment (for example a
+simplification review, a README review, or an AGENTS.md review), run them
+against the new files.
+
+Apply only justified suggestions. Every resulting change still follows the
+core rules: minimal, English-only, one commit per logical change, with the
+scope of the file it touches (for example `docs(readme): ...`). Do not run
+this step if no such skills are available, and do not invent substitutes.
 
 ---
 
-# AGENTS.md
+## AGENTS.md Content
 
-Create or update:
+`AGENTS.md` must include the following sections. Adapt wording to the
+project, but keep the rules.
 
-`AGENTS.md`
+### Project Direction
 
-This file contains persistent repository-level instructions for coding agents.
+A short description of what the project is, where it is heading (only if
+known), and what coding agents are expected to help with.
 
-Do not remove useful existing instructions.
+### Language
 
-Document the following permanent rules.
+All development artifacts are written in English: source code, identifiers,
+comments, documentation, ADRs, commit messages, tests, and agent
+instructions.
 
-## Language
+### Code Quality
 
-All development artifacts must be written in English.
+Code must be readable, modular, easy to change, and separated by
+responsibility. Prefer straightforward solutions over unnecessary
+abstraction.
 
-This includes:
+### Minimal Changes
 
-- source code;
-- identifiers;
-- comments;
-- documentation;
-- README files;
-- ADRs;
-- commit messages;
-- tests;
-- agent instructions;
-- developer-facing error messages where appropriate.
+Make the smallest change that correctly completes the current task. Do not:
 
-Do not introduce non-English development documentation unless explicitly requested.
+- refactor, rename, or reformat unrelated code;
+- change public APIs without need;
+- add dependencies without a clear reason;
+- change unrelated behavior.
 
-## Code Quality
+Respect the existing architecture unless an ADR documents a reason to change
+it.
 
-Code must be:
-
-- readable;
-- modular;
-- easy to understand;
-- easy to modify;
-- appropriately separated by responsibility.
-
-Prefer straightforward solutions over unnecessary abstraction.
-
-## Minimal Changes
-
-Always make the smallest change necessary to complete the current task correctly.
-
-Do not:
-
-- perform unrelated refactors;
-- rename unrelated files;
-- reformat unrelated code;
-- change public APIs unnecessarily;
-- introduce dependencies without a clear reason;
-- modify unrelated behavior.
-
-Respect the existing architecture unless there is a documented reason to change it.
-
-## ADR Rules
+### ADR Rules
 
 Before implementing a significant architectural decision:
 
-1. Inspect existing ADRs.
-2. Determine whether the decision is already documented.
-3. Create a new ADR when a meaningful new architectural decision is introduced.
-4. Never silently rewrite historical ADR decisions.
-5. Supersede old ADRs with new ADRs when architectural decisions change.
+1. Read the existing ADRs in `docs/adr/`.
+2. Check whether the decision is already documented.
+3. If it is new, write a new ADR before or alongside the implementation and
+   add it to `docs/adr/README.md`.
+4. Never rewrite an accepted ADR's decision; supersede it with a new ADR and
+   change only the old one's Status to `Superseded by ADR NNNN`.
 
-Agents should treat `docs/adr/` as persistent architectural memory for the repository.
+Treat `docs/adr/` as the repository's persistent architectural memory.
 
-## Incremental Development
+### Workflow
 
-Work in small steps.
+Work in small steps:
 
-Prefer:
+`inspect → plan → implement → validate → commit and push → report`
 
-`inspect → plan → implement → validate → commit → report`
-
-Each commit should represent one understandable unit of work.
-
----
-
-# Caveman / README / Agents Review
-
-After the initial repository structure is prepared, run the relevant repository-review skills when available:
-
-1. Caveman
-2. README review
-3. Agents / AGENTS.md review
-
-Use these reviews to find unnecessary complexity, unclear documentation, poor repository instructions, or violations of the project's development rules.
-
-Apply only justified changes.
-
-Do not blindly implement every suggestion produced by another skill or subagent.
-
-Any changes resulting from these reviews must still follow:
-
-- minimal-change rules;
-- English-only development;
-- modular/readable code;
-- small commits;
-- ADR rules.
-
-Store the persistent rules discovered during this initialization in `AGENTS.md` so future agents automatically follow them.
+Each commit is one understandable unit of work with a Conventional Commit
+message (`<type>(<scope>): <short description>`, types `feat`, `fix`, `docs`,
+`refactor`, `test`, `chore`).
 
 ---
 
-# Development Workflow After Initialization
+## Development After Initialization
 
-After initialization, continue implementing requested functionality one task at a time.
-
-For every task:
+Implement further requests one task at a time:
 
 1. Inspect the relevant repository state.
-2. Check `AGENTS.md`.
-3. Check relevant ADRs.
-4. Delegate implementation/research to an appropriate subagent when supported.
-5. Give the subagent only the context it needs.
-6. Implement the smallest correct change.
-7. Validate the result.
-8. Create a small focused commit.
-9. Push the completed commit when appropriate.
-10. Report the result to the user.
-11. Continue with the next task.
+2. Read `AGENTS.md` and the relevant ADRs.
+3. Delegate implementation to a subagent when supported, with only the
+   context it needs.
+4. Make the smallest correct change.
+5. Validate it (run tests, linters, or the build when they exist).
+6. Commit as one focused Conventional Commit and push.
+7. Report the result to the user.
+8. Move to the next task.
 
-Avoid batching many unrelated tasks into one agent run or one commit.
+Do not batch unrelated tasks into one run or one commit.
 
 ---
 
-# User Status Updates
+## Status Updates
 
-After each completed unit of work, send the user a concise status update.
+Send a short update after every completed unit of work. Do not hide several
+completed steps behind one final message.
 
-Example:
+Completed:
 
-`✅ README initialized`
+```
+✅ README initialized
+Commit: docs(readme): describe project purpose
+Pushed to main.
+```
 
-`Commit: docs(readme): describe project purpose`
+Awaiting review:
 
-`Pushed to main.`
+```
+🟡 AGENTS.md created
+Commit: docs(agents): define agent development workflow
+Pushed to main. Ready for your review.
+```
 
-Then continue with the next unit of work.
-
-For work awaiting user review:
-
-`🟡 agent.cmd created`
-
-`Commit: docs(agent): define agent development workflow`
-
-`Ready for your review.`
-
-For the ADR:
-
-`🟡 ADR 0001 created: Use Architecture Decision Records`
-
-`docs/adr/0001-use-architecture-decision-records.md`
-
-`Ready for your review.`
-
-Do not hide several completed steps behind one final status message.
+```
+🟡 ADR 0001 created: Use Architecture Decision Records
+docs/adr/0001-use-architecture-decision-records.md
+Commit: docs(adr): adopt architecture decision records
+Pushed to main. Ready for your review.
+```
 
 ---
 
-# General Constraints
+## Never
 
-Always:
-
-- use English for code and development documentation;
-- prefer minimal changes;
-- write readable and modular code;
-- inspect existing code before changing it;
-- preserve useful existing repository conventions;
-- use small commits;
-- use meaningful Conventional Commit messages;
-- consult ADRs before architectural changes;
-- update or create ADRs when necessary;
-- use subagents for implementation work when supported;
-- validate subagent output before committing it;
-- report progress after each completed task.
-
-Never treat repository initialization as permission to rewrite the project unnecessarily.
+- Treat initialization as permission to rewrite the project.
+- Hardcode a repository URL, project name, or project purpose.
+- Invent project functionality or roadmap.
+- Duplicate agent rules across several files.
+- Force-push or rewrite history without explicit approval.
