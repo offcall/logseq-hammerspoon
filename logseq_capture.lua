@@ -2021,7 +2021,11 @@ function submit(kind) {
         return;
     }
 
-    animateClose(() => post({ action: 'capture', kind: kind, text: text }));
+    animateClose(() => {
+        input.value = '';
+        resizeInput();
+        post({ action: 'capture', kind: kind, text: text });
+    });
 }
 
 /* ======================================================== */
@@ -2034,7 +2038,6 @@ function resetCapture() {
     capture.classList.remove('closing');
     capture.style.opacity = '';
     capture.style.transform = '';
-    input.value = '';
     st.menu = null;
     st.sel = null;
     st.lastHeight = 0;
