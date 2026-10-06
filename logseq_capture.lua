@@ -73,16 +73,25 @@ local TASKS_QUERY = [=[
                     {:block/refs [:block/uuid :block/title]}])
  :in $ ?end2
  :where
- [?task :logseq.property/status ?status]
- [?status :db/ident ?status-id]
- [(contains?
-   #{:logseq.property/status.todo
-     :logseq.property/status.backlog
-     :logseq.property/status.doing
-     :logseq.property/status.in-review}
-   ?status-id)]
- (or-join [?task ?status-id ?end2]
-   [(= ?status-id :logseq.property/status.doing)]
+ (or-join [?task]
+   (and
+     [?task :logseq.property/status ?status]
+     [?status :db/ident ?status-id]
+     [(contains?
+       #{:logseq.property/status.todo
+         :logseq.property/status.backlog
+         :logseq.property/status.doing
+         :logseq.property/status.in-review}
+       ?status-id)])
+   ;; a #Task without a status counts as todo
+   (and
+     [?task-class :db/ident :logseq.class/Task]
+     [?task :block/tags ?task-class]
+     (not [?task :logseq.property/status])))
+ (or-join [?task ?end2]
+   (and
+     [?task :logseq.property/status ?doing]
+     [?doing :db/ident :logseq.property/status.doing])
    (and
      [?task :logseq.property/deadline ?date]
      [(< ?date ?end2)])
