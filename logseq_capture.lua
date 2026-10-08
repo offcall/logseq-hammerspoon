@@ -696,7 +696,7 @@ applyData = function()
     local active = {}
     for _, pull in ipairs(pulls()) do
         if identOf(pull["logseq.property/status"]) == "doing" then
-            active[tostring(pull["db/id"])] = true
+            active[fmtInt(pull["db/id"])] = true
         end
     end
     local changed = false
@@ -832,7 +832,7 @@ updatePeek = function()
         title = tostring(doing["block/title"] or ""),
         refs = refs,
         left = left,
-        startedAt = S.taskStarts[tostring(doing["db/id"])],
+        startedAt = S.taskStarts[fmtInt(doing["db/id"])],
     }) .. ")")
 
     positionPeek()
@@ -908,7 +908,7 @@ local function handleUpdate(body)
     enqueueWrite(args, function(ok, message)
         if ok then
             if status ~= "" and body.id then
-                S.taskStarts[tostring(body.id)] = status == "doing" and startedAt or nil
+                S.taskStarts[fmtInt(body.id)] = status == "doing" and startedAt or nil
                 hs.settings.set(TASK_STARTS_KEY, S.taskStarts)
             end
             if status == "done" then
