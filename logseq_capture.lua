@@ -19,6 +19,7 @@
 --   / or n       → back to the input      Esc      → close menu / panel
 --
 -- PEEK: a small pill bottom-right with your current "Doing" task;
+-- shows elapsed time since the task was last started through this panel.
 -- slides right on hover to reveal the screen underneath.
 --
 -- Talks to Logseq only through the official CLI (`logseq … --output json`),
@@ -169,6 +170,9 @@ _G.logseqCapture = {
 }
 
 local S = _G.logseqCapture
+local TASK_STARTS_KEY = "logseqCapture.taskStarts." .. GRAPH
+S.taskStarts = hs.settings.get(TASK_STARTS_KEY)
+if type(S.taskStarts) ~= "table" then S.taskStarts = {} end
 
 local USER_SHELL = os.getenv("SHELL") or "/bin/zsh"
 
@@ -689,6 +693,21 @@ applyData = function()
 
     rollDone()
 
+    local active = {}
+    for _, pull in ipairs(pulls()) do
+        if identOf(pull["logseq.property/status"]) == "doing" then
+            active[tostring(pull["db/id"])] = true
+        end
+    end
+    local changed = false
+    for id in pairs(S.taskStarts) do
+        if not active[id] then
+            S.taskStarts[id] = nil
+            changed = true
+        end
+    end
+    if changed then hs.settings.set(TASK_STARTS_KEY, S.taskStarts) end
+
     local meta = hs.json.encode({
         start = S.cache.start,
         ["end"] = S.cache["end"],
@@ -813,6 +832,7 @@ updatePeek = function()
         title = tostring(doing["block/title"] or ""),
         refs = refs,
         left = left,
+        startedAt = S.taskStarts[tostring(doing["db/id"])],
     }) .. ")")
 
     positionPeek()
@@ -884,8 +904,13 @@ local function handleUpdate(body)
         return
     end
 
+    local startedAt = hs.timer.secondsSinceEpoch() * 1000
     enqueueWrite(args, function(ok, message)
         if ok then
+            if status ~= "" and body.id then
+                S.taskStarts[tostring(body.id)] = status == "doing" and startedAt or nil
+                hs.settings.set(TASK_STARTS_KEY, S.taskStarts)
+            end
             if status == "done" then
                 markDone(body.id, body.uuid, body.title)
             elseif status ~= "" then
@@ -2369,14 +2394,11 @@ body { padding: 8px; }
 }
 .lbl { font-size: 10px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--orange); }
 .ttl { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ib {
-    appearance: none; flex: 0 0 auto; width: 30px; height: 30px; padding: 0;
-    display: flex; align-items: center; justify-content: center;
-    border-radius: 8px; border: 1px solid var(--btn-border); background: var(--btn);
-    color: var(--muted); cursor: default;
+.elapsed {
+    flex: 0 0 auto; min-width: 65px; text-align: center;
+    font-size: 13px; font-weight: 450; font-variant-numeric: tabular-nums;
+    color: var(--muted); opacity: .8;
 }
-.ib:hover { color: var(--text); }
-.ib.ok { color: #78b4ff; border-color: rgba(10,132,255,.4); background: rgba(10,132,255,.14); }
 </style>
 </head>
 <body>
@@ -2386,15 +2408,27 @@ body { padding: 8px; }
         <span class="lbl" id="lbl">In progress</span>
         <span class="ttl" id="ttl"></span>
     </button>
-    <button class="ib" data-act="pause" title="Pause"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg></button>
-    <button class="ib ok" data-act="done" title="Done"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg></button>
+    <span class="elapsed" id="elapsed" title="Elapsed since starting in this panel"></span>
 </div>
 <script>
 (function () {
 'use strict';
 let task = null;
 let hoverAnimation = null;
+let elapsedTimer = null;
 const pill = document.querySelector('.pill');
+const elapsed = document.getElementById('elapsed');
+function renderElapsed() {
+    if (!task || !Number.isFinite(task.startedAt)) {
+        elapsed.textContent = '';
+        return;
+    }
+    const seconds = Math.max(0, Math.floor((Date.now() - task.startedAt) / 1000));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor(seconds / 60) % 60;
+    const pad = n => String(n).padStart(2, '0');
+    elapsed.textContent = (hours ? hours + ':' : '') + pad(minutes) + ':' + pad(seconds % 60);
+}
 function post(m) {
     try { window.webkit.messageHandlers.logseqPeek.postMessage(m); } catch (e) { console.error(e); }
 }
@@ -2423,6 +2457,10 @@ window.peek = {
     },
     set(d) {
         task = d;
+        if (elapsedTimer) clearInterval(elapsedTimer);
+        elapsedTimer = null;
+        renderElapsed();
+        if (Number.isFinite(d.startedAt)) elapsedTimer = setInterval(renderElapsed, 1000);
         document.getElementById('ttl').textContent = cleanTitle(d.title, d.refs);
         document.getElementById('lbl').textContent =
             'In progress' + (d.left ? ' · ' + d.left + ' left today' : '');
@@ -2433,13 +2471,6 @@ document.addEventListener('click', e => {
     if (!b || !task) return;
     const act = b.dataset.act;
     if (act === 'expand') post({ action: 'expand' });
-    else if (act === 'pause' || act === 'done') {
-        post({
-            action: 'update',
-            id: task.id, uuid: task.uuid || '', title: cleanTitle(task.title, task.refs),
-            status: act === 'done' ? 'done' : 'todo'
-        });
-    }
 });
 document.addEventListener('DOMContentLoaded', () => post({ action: 'ready' }));
 })();
@@ -2591,8 +2622,6 @@ local function createPeek()
             -- Hiding the native window lets clicks reach the app underneath.
             S.peek:hide()
             S.peekVisible = false
-        elseif body.action == "update" then
-            handleUpdate(body)
         end
     end)
 
@@ -2602,7 +2631,7 @@ local function createPeek()
         S.peekContent
     )
 
-    -- "nonactivating" lets a click hit the buttons without stealing focus.
+    -- "nonactivating" keeps the peek from stealing focus.
     local okStyle = pcall(function()
         S.peek:windowStyle({ "borderless", "nonactivating" })
     end)
