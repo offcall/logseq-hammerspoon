@@ -17,6 +17,7 @@
 --   b            → backlog (clears dates) ↩ / o    → open in Logseq
 --   double-click a row (not its buttons) → open that block in Logseq
 --   ⌘Z           → undo last action       ⌘R       → refresh
+--   ⌘F           → search tasks (Esc clears, ↓ / ↩ jump into the list)
 --   / or n       → back to the input      Esc      → close menu / panel
 --
 -- PEEK: a small pill bottom-right with your current "Doing" tasks, one row
@@ -1237,6 +1238,28 @@ textarea:focus {
 .bar > i { display: block; height: 100%; width: 0; background: var(--blue); border-radius: 3px; transition: width .3s ease; }
 .progress .txt { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+.search { display: flex; align-items: center; }
+.search button {
+    appearance: none; border: 0; background: none; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 6px;
+    color: var(--muted); cursor: default;
+}
+.search button:hover { background: var(--hover); color: var(--text); }
+.search input {
+    width: 0; height: 24px; padding: 0; border: 0; outline: none;
+    border-radius: 6px; background: none; color: var(--text);
+    font: inherit; font-size: 12px; opacity: 0;
+    user-select: text; -webkit-user-select: text;
+    transition: width .15s ease, opacity .15s ease;
+}
+.search input::placeholder { color: var(--faint); }
+.search.open button { display: none; }
+.search.open input {
+    width: 150px; padding: 0 8px; opacity: 1;
+    border: 1px solid var(--sel-border); background: var(--field-focus);
+}
+
 .sort { position: relative; margin-left: auto; }
 .sort summary {
     list-style: none; display: flex; align-items: center; justify-content: center;
@@ -1455,6 +1478,12 @@ button.chip:hover { color: var(--text); background: var(--hover); }
             <div class="bar"><i id="progBar"></i></div>
             <span class="txt" id="progTxt"></span>
         </div>
+        <div class="search" id="search">
+            <button id="searchBtn" title="Search tasks (⌘F)" aria-label="Search tasks">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+            </button>
+            <input id="searchInput" type="text" placeholder="Search tasks…" spellcheck="false" aria-label="Search tasks">
+        </div>
         <details class="sort" id="sortMenu">
             <summary title="Sort tasks" aria-label="Sort tasks">
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h7M2 8h5M2 12h3M12 3v10M9.5 10.5 12 13l2.5-2.5"/></svg>
@@ -1496,6 +1525,8 @@ const progBar = $('progBar');
 const progTxt = $('progTxt');
 const taskTools = $('taskTools');
 const sortMenu = $('sortMenu');
+const searchEl = $('search');
+const searchInput = $('searchInput');
 
 const DAY = 86400000;
 
@@ -1510,6 +1541,7 @@ const st = {
     sel: null,
     menu: null,
     sort: 'modified-asc',
+    query: '',
     collapsed: { tomorrow: true, done: true },
     undo: null,
     closing: false,
@@ -1665,6 +1697,13 @@ function groups() {
     return gr;
 }
 
+// Every word of the query must appear in the title (case-insensitive).
+function matchesQuery(t) {
+    const words = st.query.toLowerCase().split(/\s+/).filter(Boolean);
+    const title = String(t.title).toLowerCase();
+    return words.every(w => title.indexOf(w) >= 0);
+}
+
 function findTask(id) {
     id = String(id);
     return st.tasks.concat(st.temps).find(t => String(t.id) === id) || null;
@@ -1787,7 +1826,8 @@ function section(key, label, items, opts) {
     opts = opts || {};
     if (!items.length && !opts.always) return '';
     const collapsible = key in st.collapsed;
-    const collapsed = collapsible && st.collapsed[key];
+    // While searching, every section with matches is shown expanded.
+    const collapsed = collapsible && st.collapsed[key] && !st.query;
     const head =
         (collapsible ? '<button class="sec ' + (opts.cls || '') + '" data-act="section" data-sec="' + key + '">' : '<div class="sec ' + (opts.cls || '') + '">') +
         (collapsible ? '<span class="chev">' + (collapsed ? '▸' : '▾') + '</span>' : '') +
@@ -1824,16 +1864,20 @@ function render(opts) {
         progBar.style.width = total ? Math.round(doneItems.length / total * 100) + '%' : '0';
         progTxt.textContent = doneItems.length + ' / ' + total + ' done';
 
+        const searching = !!st.query.trim();
+        const shown = items => searching ? items.filter(matchesQuery) : items;
+
         let html = '';
         if (st.error) html += '<div class="empty">Refresh failed: ' + esc(st.error) + ' <button data-act="retry">Retry</button></div>';
-        html += section('expired', 'Expired', gr.expired, { cls: 'red' });
-        html += section('doing', 'In progress', gr.doing, { cls: 'orange', dot: true });
-        html += section('today', 'Today', gr.today, {
-            always: true,
+        html += section('expired', 'Expired', shown(gr.expired), { cls: 'red' });
+        html += section('doing', 'In progress', shown(gr.doing), { cls: 'orange', dot: true });
+        html += section('today', 'Today', shown(gr.today), {
+            always: !searching,
             empty: gr.expired.length || gr.doing.length ? 'Nothing else for today.' : 'Nothing for today. Add one with ⌘T.'
         });
-        html += section('tomorrow', 'Tomorrow', gr.tomorrow);
-        html += section('done', 'Done today', doneItems);
+        html += section('tomorrow', 'Tomorrow', shown(gr.tomorrow));
+        html += section('done', 'Done today', shown(doneItems));
+        if (searching && !st.order.length) html += '<div class="empty">No tasks match “' + esc(st.query.trim()) + '”.</div>';
         listEl.innerHTML = html;
     }
 
@@ -1864,6 +1908,8 @@ function renderFoot() {
     let html;
     if (document.activeElement === input) {
         html = h('↩', 'note') + h('⌘T', 'today') + h('⌘⇧T', 'tmrw') + h('⌘B', 'backlog') + h('⌘P', 'page') + h('↓', 'tasks');
+    } else if (document.activeElement === searchInput) {
+        html = h('↓', 'tasks') + h('esc', 'clear') + h('⌘F', 'search');
     } else if (st.menu != null) {
         html = h('1–6', 'pick') + h('esc', 'cancel');
     } else {
@@ -2128,6 +2174,7 @@ function resetCapture() {
     st.menu = null;
     st.sel = null;
     sortMenu.open = false;
+    closeSearch();
     st.lastHeight = 0;
     resizeInput();
     render();
@@ -2173,6 +2220,33 @@ document.querySelectorAll('[data-kind]').forEach(button => {
 
 $('closeBtn').addEventListener('click', closePanel);
 $('dashBtn').addEventListener('click', () => post({ action: 'openPage' }));
+
+/* search */
+
+function openSearch() {
+    searchEl.classList.add('open');
+    searchInput.focus();
+    searchInput.select();
+    renderFoot();
+}
+
+function closeSearch() {
+    st.query = '';
+    searchInput.value = '';
+    searchEl.classList.remove('open');
+}
+
+$('searchBtn').addEventListener('click', openSearch);
+searchInput.addEventListener('input', () => {
+    st.query = searchInput.value;
+    st.menu = null;
+    render();
+});
+searchInput.addEventListener('focus', renderFoot);
+searchInput.addEventListener('blur', () => {
+    if (!searchInput.value) searchEl.classList.remove('open');
+    renderFoot();
+});
 
 sortMenu.addEventListener('click', e => {
     const option = e.target.closest('[data-sort]');
@@ -2272,6 +2346,25 @@ document.addEventListener('keydown', e => {
     const inDate = e.target.matches && e.target.matches('input[type=date]');
     const meta = e.metaKey;
 
+    if (meta && lower === 'f') { e.preventDefault(); openSearch(); return; }
+
+    if (e.target === searchInput) {
+        if (k === 'Escape') {
+            e.preventDefault();
+            closeSearch();
+            render();
+            listEl.focus({ preventScroll: true });
+            return;
+        }
+        if ((k === 'ArrowDown' || (k === 'Enter' && !e.isComposing)) && st.order.length) {
+            e.preventDefault();
+            listEl.focus({ preventScroll: true });
+            st.sel = st.order[0];
+            render({ scroll: true });
+        }
+        return;
+    }
+
     if (k === 'Escape') {
         e.preventDefault();
         if (sortMenu.open) {
@@ -2282,6 +2375,11 @@ document.addEventListener('keydown', e => {
         if (st.menu != null) {
             st.menu = null;
             listEl.focus({ preventScroll: true });
+            render();
+            return;
+        }
+        if (st.query) {
+            closeSearch();
             render();
             return;
         }
