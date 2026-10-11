@@ -1,89 +1,62 @@
 # logseq-hammerspoon
 
-A quick-capture and "today" task panel for [Logseq](https://logseq.com/) (DB version)
-on macOS, built on [Hammerspoon](https://www.hammerspoon.org/). Push the mouse into
-the bottom-right corner, type, press a shortcut — the note or task is in Logseq
-without switching windows.
+Quick capture and today's tasks for [Logseq](https://logseq.com/) (DB version) on
+macOS. Move the mouse to the bottom-right corner, type, press a shortcut. Built on
+[Hammerspoon](https://www.hammerspoon.org/).
 
 ![Capture + Today panel and the Doing pill](docs/screenshot.png)
 
-- **Capture** — a note to today's journal, a task for today, tomorrow, or any date,
-  a backlog task, or a new page.
-- **Task list** — Expired · In progress · Today · Tomorrow · Done today, plus a
-  two-week calendar view. Start, finish, reschedule, search, and undo from the
-  keyboard.
-- **Peek** — a small pill in the corner with your current "Doing" tasks and timers.
+- **Capture**: journal note, task for today, tomorrow, or a date, backlog task, page.
+- **Tasks**: Expired · In progress · Today · Tomorrow · Done today, plus a two-week
+  calendar. Keyboard-driven.
+- **Peek**: pill in the corner with your Doing tasks and timers.
 
 ## Quick start
 
-1. Install [Hammerspoon](https://www.hammerspoon.org/), Logseq (DB version), and the
-   Logseq CLI (needs Node.js on your login-shell `PATH`).
-2. Free the bottom-right hot corner: macOS uses it for **Quick Note** by default.
-   Open **System Settings → Desktop & Dock → Hot Corners…** and set the bottom-right
-   corner to **–**.
-3. Run:
+Needs Hammerspoon, Logseq (DB version), and the Logseq CLI.
 
-   ```sh
-   curl -fsSL https://raw.githubusercontent.com/offcall/logseq-hammerspoon/main/install.sh | bash
-   ```
+> [!IMPORTANT]
+> macOS opens **Quick Note** from the bottom-right corner by default, which conflicts
+> with the panel. Turn it off: **System Settings → Desktop & Dock → Hot Corners…**,
+> set the bottom-right corner to **–**.
 
-   The installer lists your local graphs, asks which one to use and which page the
-   panel's top-right button opens (it checks that the page exists and suggests
-   similar names), then restarts Hammerspoon. To skip the questions:
+Install or update:
 
-   ```sh
-   curl -fsSL https://raw.githubusercontent.com/offcall/logseq-hammerspoon/main/install.sh \
-     | LOGSEQ_GRAPH="My graph" LOGSEQ_DASHBOARD="Dashboard" bash
-   ```
+```sh
+curl -fsSL https://raw.githubusercontent.com/offcall/logseq-hammerspoon/main/install.sh | bash
+```
 
-4. Move the mouse into the bottom-right corner. macOS may ask you to allow
-   Hammerspoon Accessibility access and your terminal to control Hammerspoon.
-
-Run the same command to update. From a clone, `./install.sh` does the same with the
-local files.
-
-### What the installer changes
-
-- `~/.hammerspoon/logseq_capture.lua` — the script, replaced on every update.
-- `~/.hammerspoon/logseq_capture_config.lua` — your settings, created once and never
-  overwritten.
-- `~/.hammerspoon/init.lua` — gets one line, `require("logseq_capture")`. The rest of
-  your Hammerspoon config stays; the previous file is saved as
-  `init.lua.backup.XXXXXX`.
+The installer asks for the graph and the dashboard page, then restarts Hammerspoon.
+Your Hammerspoon config is kept: `init.lua` only gets `require("logseq_capture")`.
 
 ## Configuration
 
-Edit `~/.hammerspoon/logseq_capture_config.lua` and reload Hammerspoon:
+`~/.hammerspoon/logseq_capture_config.lua` (updates never overwrite it):
 
 ```lua
 return {
     logseq = "/Users/you/.local/bin/logseq",  -- Logseq CLI
-    graph = "My graph",                       -- graph to read and write
-    dashboardPage = "Dashboard",              -- page for the top-right button; false hides it
-    openHotkey = { {"cmd", "alt"}, "L" },     -- optional hotkey to toggle the panel
+    graph = "My graph",
+    dashboardPage = "Dashboard",              -- any page; false hides the button
+    openHotkey = { {"cmd", "alt"}, "L" },     -- optional
 }
 ```
 
-`dashboardPage` can be any page in your graph — a dashboard, an inbox, a weekly
-review. The button shows that page's name and opens it in Logseq; set it to `false`
-if you don't need it.
+Reload Hammerspoon after editing.
 
-## Keyboard shortcuts
+## Shortcuts
 
 | Where | Keys |
 | --- | --- |
-| Capture | `↩` note · `⇧↩` newline · `⌘T` today · `⌘⇧T` tomorrow · `⌘D` date · `⌘B` backlog · `⌘P` page · `↓` / `Tab` to the list |
-| List | `↑↓` / `j k` move · `Space` / `x` done · `s` start/pause · `t` tomorrow · `d` reschedule · `b` backlog · `↩` / `o` open in Logseq |
-| Anywhere | `⌘Z` undo · `⌘R` refresh · `⌘F` search · `c` list/calendar · `/` or `n` back to input · `Esc` close |
+| Capture | `↩` note · `⇧↩` newline · `⌘T` today · `⌘⇧T` tomorrow · `⌘D` date · `⌘B` backlog · `⌘P` page · `↓` list |
+| List | `↑↓` / `j k` move · `Space` done · `s` start/pause · `t` tomorrow · `d` reschedule · `b` backlog · `↩` open |
+| Anywhere | `⌘Z` undo · `⌘R` refresh · `⌘F` search · `c` calendar · `/` input · `Esc` close |
 
 ## How it works
 
-The panel talks to Logseq only through the official CLI
-(`logseq --graph <name> --output json ...`), called asynchronously one command at a
-time. It never edits graph files directly. Logs appear in the Hammerspoon console
-with the `[Logseq Panel]` prefix.
-
-Significant decisions are recorded in [`docs/adr/`](docs/adr/).
+Talks to Logseq only through the official CLI, never edits graph files. Logs go to
+the Hammerspoon console with the `[Logseq Panel]` prefix. Design decisions:
+[`docs/adr/`](docs/adr/).
 
 ## License
 
