@@ -43,7 +43,7 @@ main() {
 
     # 1. User config: created once, kept on updates.
     if [[ ! -e "$USER_CONFIG" ]]; then
-        GRAPH=${LOGSEQ_GRAPH:-$(ask 'Logseq graph name: ')}
+        GRAPH=${LOGSEQ_GRAPH:-$(ask 'Logseq graph name (e.g. Personal): ')}
         if [[ -z "$GRAPH" ]]; then
             printf 'No graph name. Re-run with LOGSEQ_GRAPH="<graph>".\n' >&2
             exit 1
@@ -52,7 +52,7 @@ main() {
         if [[ -n "${LOGSEQ_DASHBOARD+set}" ]]; then
             DASHBOARD=$LOGSEQ_DASHBOARD
         else
-            DASHBOARD=$(ask 'Page for the panel'\''s top-right button (empty = no button): ')
+            DASHBOARD=$(ask 'Page for the panel'\''s top-right button (e.g. Dashboard; empty = no button): ')
         fi
 
         CLI=$("${SHELL:-/bin/zsh}" -lic 'command -v logseq' </dev/null 2>/dev/null | tail -n 1 || true)
