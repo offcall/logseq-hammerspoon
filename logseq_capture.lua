@@ -19,6 +19,7 @@
 --   double-click a row (not its buttons) → open that block in Logseq
 --   ⌘Z           → undo last action       ⌘R       → refresh
 --   ⌘F           → search tasks (Esc clears, ↓ / ↩ jump into the list)
+--   c            → toggle List / Calendar (2-week grid, ←→ day, ⇧←→ week)
 --   / or n       → back to the input      Esc      → close menu / panel
 --
 -- PEEK: a small pill bottom-right with your current "Doing" tasks, one row
@@ -65,8 +66,9 @@ local VALID_STATUS = {
     backlog = true, ["in-review"] = true, canceled = true,
 }
 
--- Expired + Today + Tomorrow + every Doing task, in ONE query.
--- ?end2 = start of the day after tomorrow (local time, epoch ms).
+-- Every dated task before ?until + every Doing task, in ONE query.
+-- ?until = end of the calendar grid: Monday of the week after next
+-- (local time, epoch ms). The list mode filters to tomorrow in JS.
 local TASKS_QUERY = [=[
 [:find (pull ?task [:db/id
                     :block/uuid
@@ -77,7 +79,7 @@ local TASKS_QUERY = [=[
                     {:logseq.property/status [:db/ident]}
                     {:logseq.property/priority [:db/ident]}
                     {:block/refs [:block/uuid :block/title]}])
- :in $ ?end2
+ :in $ ?until
  :where
  (or-join [?task]
    (and
@@ -94,16 +96,16 @@ local TASKS_QUERY = [=[
      [?task-class :db/ident :logseq.class/Task]
      [?task :block/tags ?task-class]
      (not [?task :logseq.property/status])))
- (or-join [?task ?end2]
+ (or-join [?task ?until]
    (and
      [?task :logseq.property/status ?doing]
      [?doing :db/ident :logseq.property/status.doing])
    (and
      [?task :logseq.property/deadline ?date]
-     [(< ?date ?end2)])
+     [(< ?date ?until)])
    (and
      [?task :logseq.property/scheduled ?date]
-     [(< ?date ?end2)]))]
+     [(< ?date ?until)]))]
 ]=]
 
 
@@ -561,13 +563,15 @@ local function makeRefreshJob()
     local start = dayStartMs(0)
     local finish = dayStartMs(1)
     local finish2 = dayStartMs(2)
+    -- Monday of this week + 14 days (os.date wday: 1 = Sunday).
+    local untilMs = dayStartMs(14 - (os.date("*t").wday + 5) % 7)
 
     return {
         kind = "refresh",
         args = {
             "query",
             "--query", TASKS_QUERY,
-            "--inputs", "[" .. fmtInt(finish2) .. "]",
+            "--inputs", "[" .. fmtInt(untilMs) .. "]",
         },
         cb = function(ok, raw, decoded, message)
             jsPanel("app.setLoading(false)")
@@ -589,6 +593,7 @@ local function makeRefreshJob()
                 start = start,
                 ["end"] = finish,
                 end2 = finish2,
+                ["until"] = untilMs,
             }
 
             applyData()
@@ -718,6 +723,7 @@ applyData = function()
         start = S.cache.start,
         ["end"] = S.cache["end"],
         end2 = S.cache.end2,
+        ["until"] = S.cache["until"],
         done = S.done.items,
     })
 
@@ -1277,6 +1283,42 @@ textarea:focus {
 .bar > i { display: block; height: 100%; width: 0; background: var(--blue); border-radius: 3px; transition: width .3s ease; }
 .progress .txt { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+.view-btn {
+    appearance: none; border: 0; background: none; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 6px;
+    color: var(--muted); cursor: default;
+}
+.view-btn:hover { background: var(--hover); color: var(--text); }
+.view-btn.on { background: var(--sel); color: var(--blue-text); }
+
+/* calendar grid */
+.days { flex: 0 0 auto; margin: 0 0 4px; }
+.days[hidden] { display: none; }
+.days-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.days-dw { font-size: 9px; color: var(--faint); text-align: center; text-transform: uppercase; padding-bottom: 1px; }
+.day {
+    appearance: none; position: relative; height: 40px; padding: 3px 5px;
+    display: flex; flex-direction: column; align-items: flex-start;
+    border: 1px solid transparent; border-radius: 7px; background: var(--btn);
+    color: var(--muted); font: inherit; font-size: 10px; text-align: left; cursor: default;
+}
+.day:hover { background: var(--hover); }
+.day b { font-size: 12px; line-height: 15px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.day.we { opacity: .6; }
+.day.past { opacity: .4; }
+.day.today b { color: var(--blue-text); }
+.day.sel { background: var(--sel); border-color: var(--sel-border); opacity: 1; }
+.day .late { position: absolute; right: 4px; top: 3px; color: var(--red); font-weight: 600; }
+.day .load { position: absolute; left: 5px; right: 5px; bottom: 4px; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.day .load i { display: block; height: 100%; border-radius: 2px; background: var(--blue); }
+.day .load i.full { background: var(--orange); }
+.sec .earlier {
+    appearance: none; border: 0; background: none; padding: 0; margin-left: auto;
+    color: var(--red); font: inherit; text-transform: none; letter-spacing: 0; font-weight: 500; cursor: default;
+}
+.sec .earlier:hover { text-decoration: underline; }
+
 .search { display: flex; align-items: center; }
 .search button {
     appearance: none; border: 0; background: none; padding: 0;
@@ -1528,6 +1570,9 @@ button.chip:hover { color: var(--text); background: var(--hover); }
             </button>
             <input id="searchInput" type="text" placeholder="Search tasks…" spellcheck="false" aria-label="Search tasks">
         </div>
+        <button class="view-btn" id="viewBtn" title="Calendar (c)" aria-label="Toggle calendar">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg>
+        </button>
         <details class="sort" id="sortMenu">
             <summary title="Sort tasks" aria-label="Sort tasks">
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h7M2 8h5M2 12h3M12 3v10M9.5 10.5 12 13l2.5-2.5"/></svg>
@@ -1540,6 +1585,8 @@ button.chip:hover { color: var(--text); background: var(--hover); }
             </div>
         </details>
     </div>
+
+    <div class="days" id="days" hidden></div>
 
     <div class="list" id="list" tabindex="-1"></div>
 
@@ -1570,6 +1617,8 @@ const progTxt = $('progTxt');
 const taskTools = $('taskTools');
 const sortMenu = $('sortMenu');
 const pickerEl = $('picker');
+const daysEl = $('days');
+const viewBtn = $('viewBtn');
 const dateBtn = $('dateBtn');
 const searchEl = $('search');
 const searchInput = $('searchInput');
@@ -1587,6 +1636,8 @@ const st = {
     sel: null,
     menu: null,
     picker: null,
+    view: 'list',
+    calDay: null,
     sort: 'modified-asc',
     query: '',
     collapsed: { tomorrow: true, done: true },
@@ -1625,7 +1676,11 @@ function addDays(ms, n) {
 function bounds() {
     if (st.bounds && st.bounds.start) return st.bounds;
     const s = dayStart(Date.now());
-    return { start: s, end: addDays(s, 1), end2: addDays(s, 2) };
+    return { start: s, end: addDays(s, 1), end2: addDays(s, 2), until: addDays(weekStart(s), 14) };
+}
+// Monday of the week that contains ms.
+function weekStart(ms) {
+    return addDays(dayStart(ms), -((new Date(ms).getDay() + 6) % 7));
 }
 function todayStart() { return bounds().start; }
 function fmtDay(ms) {
@@ -1746,6 +1801,22 @@ function groups() {
     });
     Object.keys(gr).forEach(k => gr[k].sort(sortTasks));
     return gr;
+}
+
+/* calendar: Monday-first grid of this week and the next */
+const CAL_DAYS = 14;
+function calStart() { return weekStart(todayStart()); }
+function calDay() {
+    const d = st.calDay;
+    return d != null && d >= calStart() && d < addDays(calStart(), CAL_DAYS) ? d : todayStart();
+}
+// A task belongs to the day of its earliest date (deadline or scheduled).
+function dayOfTask(t) {
+    const m = minDate(t);
+    return m === Infinity ? null : dayStart(m);
+}
+function openOn(ms) {
+    return st.tasks.concat(st.temps).filter(t => t.status !== 'done' && dayOfTask(t) === ms).sort(sortTasks);
 }
 
 // Every word of the query must appear in the title (case-insensitive).
@@ -1890,6 +1961,43 @@ function section(key, label, items, opts) {
     return head + items.map(t => rowFor(t, key)).join('');
 }
 
+function renderDays() {
+    const on = st.view === 'calendar' && st.loaded;
+    daysEl.hidden = !on;
+    viewBtn.classList.toggle('on', st.view === 'calendar');
+    if (!on) { daysEl.innerHTML = ''; return; }
+    const s = todayStart();
+    const start = calStart();
+    const sel = calDay();
+    let cells = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => '<span class="days-dw">' + d + '</span>').join('');
+    for (let i = 0; i < CAL_DAYS; i++) {
+        const ms = addDays(start, i);
+        const n = openOn(ms).length;
+        const cls = ['day'];
+        if (i % 7 >= 5) cls.push('we');
+        if (ms < s) cls.push('past');
+        if (ms === s) cls.push('today');
+        if (ms === sel) cls.push('sel');
+        let inner = '<b>' + new Date(ms).getDate() + '</b>';
+        if (ms < s) {
+            if (n) inner += '<span class="late">' + n + '</span>';
+        } else if (n) {
+            inner += n + '<span class="load"><i' + (n >= 5 ? ' class="full"' : '') + ' style="width:' + Math.min(100, n * 20) + '%"></i></span>';
+        }
+        cells += '<button class="' + cls.join(' ') + '" data-day="' + ms + '" title="' + esc(fmtDay(ms)) + '">' + inner + '</button>';
+    }
+    daysEl.innerHTML = '<div class="days-grid">' + cells + '</div>';
+}
+
+function daySection(day, items, earlier) {
+    const head = '<div class="sec' + (day < todayStart() && items.length ? ' red' : '') + '">' +
+        esc(dayLabel(day)) + ' <span class="n">' + items.length + '</span>' +
+        (earlier ? '<button class="earlier" data-act="list">' + earlier + ' earlier →</button>' : '') +
+        '</div>';
+    if (!items.length) return head + '<div class="empty">Nothing on this day.</div>';
+    return head + items.map(t => rowFor(t, bucketOf(t) || 'later')).join('');
+}
+
 function render(opts) {
     opts = opts || {};
     const scrollTop = listEl.scrollTop;
@@ -1920,14 +2028,21 @@ function render(opts) {
 
         let html = '';
         if (st.error) html += '<div class="empty">Refresh failed: ' + esc(st.error) + ' <button data-act="retry">Retry</button></div>';
-        html += section('expired', 'Expired', shown(gr.expired), { cls: 'red' });
-        html += section('doing', 'In progress', shown(gr.doing), { cls: 'orange', dot: true });
-        html += section('today', 'Today', shown(gr.today), {
-            always: !searching,
-            empty: gr.expired.length || gr.doing.length ? 'Nothing else for today.' : 'Nothing for today. Add one with ⌘T.'
-        });
-        html += section('tomorrow', 'Tomorrow', shown(gr.tomorrow));
-        html += section('done', 'Done today', shown(doneItems));
+        if (st.view === 'calendar') {
+            const day = calDay();
+            const earlier = gr.expired.filter(t => dayOfTask(t) < calStart()).length;
+            html += daySection(day, shown(openOn(day)), earlier);
+            if (day === todayStart()) html += section('done', 'Done today', shown(doneItems));
+        } else {
+            html += section('expired', 'Expired', shown(gr.expired), { cls: 'red' });
+            html += section('doing', 'In progress', shown(gr.doing), { cls: 'orange', dot: true });
+            html += section('today', 'Today', shown(gr.today), {
+                always: !searching,
+                empty: gr.expired.length || gr.doing.length ? 'Nothing else for today.' : 'Nothing for today. Add one with ⌘T.'
+            });
+            html += section('tomorrow', 'Tomorrow', shown(gr.tomorrow));
+            html += section('done', 'Done today', shown(doneItems));
+        }
         if (searching && !st.order.length) html += '<div class="empty">No tasks match “' + esc(st.query.trim()) + '”.</div>';
         listEl.innerHTML = html;
     }
@@ -1935,6 +2050,7 @@ function render(opts) {
     if (st.sel != null && st.order.indexOf(st.sel) < 0) st.sel = null;
     if (st.menu != null && st.order.indexOf(st.menu) < 0) st.menu = null;
 
+    renderDays();
     listEl.scrollTop = scrollTop;
 
     if (opts.scroll && st.sel != null) {
@@ -1965,8 +2081,10 @@ function renderFoot() {
         html = h('↓', 'tasks') + h('esc', 'clear') + h('⌘F', 'search');
     } else if (st.menu != null) {
         html = h('1–6', 'pick') + h('esc', 'cancel');
+    } else if (st.view === 'calendar') {
+        html = h('↑↓', 'move') + h('←→', 'day') + h('⇧←→', 'week') + h('␣', 'done') + h('D', 'date') + h('↩', 'open') + h('C', 'list');
     } else {
-        html = h('↑↓', 'move') + h('␣', 'done') + h('S', 'start') + h('T', 'tmrw') + h('D', 'date') + h('B', 'backlog') + h('↩', 'open');
+        html = h('↑↓', 'move') + h('␣', 'done') + h('S', 'start') + h('T', 'tmrw') + h('D', 'date') + h('B', 'backlog') + h('↩', 'open') + h('C', 'cal');
     }
     footEl.innerHTML = html;
 }
@@ -2172,6 +2290,23 @@ function paintSelection() {
     renderFoot();
 }
 
+function setView(view) {
+    st.view = view;
+    st.calDay = null;
+    st.sel = null;
+    st.menu = null;
+    render();
+    listEl.focus({ preventScroll: true });
+}
+
+function moveCalDay(delta) {
+    const start = calStart();
+    st.calDay = Math.min(addDays(start, CAL_DAYS - 1), Math.max(start, addDays(calDay(), delta)));
+    st.sel = null;
+    st.menu = null;
+    render();
+}
+
 function select(id) {
     st.sel = id == null ? null : String(id);
     if (document.activeElement === input) input.blur();
@@ -2198,8 +2333,8 @@ function submit(kind, dateMs) {
         const ms = kind === 'date' ? dateMs : (kind === 'today' ? todayStart() : tomorrow);
         const req = ++st.req;
         const pt = parseTitle(text);
-        // The list only covers dates up to tomorrow; later tasks get just the toast.
-        if (ms < bounds().end2) {
+        // Tasks past the calendar window get just the toast.
+        if (ms < bounds().until) {
             st.temps.push({ id: 'tmp' + req, req: req, pending: true, status: 'todo', priority: '', modifiedAt: Date.now(), deadline: ms, scheduled: null, title: pt.text, links: pt.links });
         }
         post({ action: 'capture', kind: kind, text: text, ms: ms, req: req });
@@ -2320,6 +2455,7 @@ function resetCapture() {
     capture.style.transform = '';
     st.menu = null;
     st.sel = null;
+    st.calDay = null;
     st.picker = null;
     renderPicker();
     sortMenu.open = false;
@@ -2457,12 +2593,23 @@ function onClick(e) {
             break;
         case 'undo': undo(); break;
         case 'retry': post({ action: 'refresh' }); break;
+        case 'list': setView('list'); break;
         case 'dashboard': post({ action: 'openPage' }); break;
         case 'pick': break;
     }
 }
 
 listEl.addEventListener('click', onClick);
+viewBtn.addEventListener('click', () => setView(st.view === 'calendar' ? 'list' : 'calendar'));
+daysEl.addEventListener('click', e => {
+    const cell = e.target.closest('[data-day]');
+    if (!cell) return;
+    st.calDay = Number(cell.dataset.day);
+    st.sel = null;
+    st.menu = null;
+    render();
+    listEl.focus({ preventScroll: true });
+});
 footEl.addEventListener('click', onClick);
 toastEl.addEventListener('click', onClick);
 
@@ -2602,6 +2749,13 @@ document.addEventListener('keydown', e => {
         return;
     }
 
+    if (lower === 'c') { e.preventDefault(); setView(st.view === 'calendar' ? 'list' : 'calendar'); return; }
+    if (st.view === 'calendar' && (k === 'ArrowLeft' || k === 'ArrowRight')) {
+        e.preventDefault();
+        moveCalDay((k === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 7 : 1));
+        return;
+    }
+
     const sel = st.sel;
     const sec = sel != null ? st.secOf[sel] : null;
 
@@ -2656,7 +2810,7 @@ window.app = {
             .map(normTask)
             .filter(t => t.id != null);
         meta = meta || {};
-        if (meta.start) st.bounds = { start: meta.start, end: meta.end, end2: meta.end2 };
+        if (meta.start) st.bounds = { start: meta.start, end: meta.end, end2: meta.end2, until: meta.until || addDays(weekStart(meta.start), 14) };
         st.done = (Array.isArray(meta.done) ? meta.done : []).map(d => ({
             id: d.id, uuid: d.uuid || '', title: d.title || '', links: [], modifiedAt: num(d.modifiedAt)
         }));
