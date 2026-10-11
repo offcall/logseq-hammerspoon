@@ -2223,7 +2223,10 @@ $('dashBtn').addEventListener('click', () => post({ action: 'openPage' }));
 
 /* search */
 
+// Filtering shrinks the list; pin the panel height while searching so the
+// window doesn't shrink out from under the mouse (mouseleave closes it).
 function openSearch() {
+    if (!searchEl.classList.contains('open')) capture.style.minHeight = capture.offsetHeight + 'px';
     searchEl.classList.add('open');
     searchInput.focus();
     searchInput.select();
@@ -2234,6 +2237,7 @@ function closeSearch() {
     st.query = '';
     searchInput.value = '';
     searchEl.classList.remove('open');
+    capture.style.minHeight = '';
 }
 
 $('searchBtn').addEventListener('click', openSearch);
@@ -2244,7 +2248,7 @@ searchInput.addEventListener('input', () => {
 });
 searchInput.addEventListener('focus', renderFoot);
 searchInput.addEventListener('blur', () => {
-    if (!searchInput.value) searchEl.classList.remove('open');
+    if (!searchInput.value) closeSearch();
     renderFoot();
 });
 
