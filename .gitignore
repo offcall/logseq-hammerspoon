@@ -19,3 +19,6 @@
 # Logs and temporary files
 *.log
 tmp/
+
+# bb workspace data
+.bb/
