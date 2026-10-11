@@ -68,6 +68,7 @@ local TASKS_QUERY = [=[
 [:find (pull ?task [:db/id
                     :block/uuid
                     :block/title
+                    :block/updated-at
                     :logseq.property/deadline
                     :logseq.property/scheduled
                     {:logseq.property/status [:db/ident]}
@@ -519,6 +520,7 @@ local function markDone(id, uuid, title)
         id = tonumber(id),
         uuid = tostring(uuid or ""),
         title = tostring(title or ""),
+        modifiedAt = hs.timer.secondsSinceEpoch() * 1000,
     })
 
     while #S.done.items > 50 do
@@ -1221,14 +1223,42 @@ textarea:focus {
 .actions svg { flex: 0 0 auto; opacity: .8; }
 
 /* progress */
-.progress {
+.task-tools {
     flex: 0 0 auto;
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 8px;
     margin: 12px 2px 6px;
+}
+.progress {
+    flex: 1;
+    display: flex; align-items: center; gap: 10px;
 }
 .bar { flex: 1; height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .bar > i { display: block; height: 100%; width: 0; background: var(--blue); border-radius: 3px; transition: width .3s ease; }
 .progress .txt { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.sort { position: relative; margin-left: auto; }
+.sort summary {
+    list-style: none; display: flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 6px;
+    color: var(--muted); cursor: default;
+}
+.sort summary::-webkit-details-marker { display: none; }
+.sort summary:hover, .sort[open] summary { background: var(--hover); color: var(--text); }
+.sort-menu {
+    position: absolute; right: 0; bottom: 28px; z-index: 10;
+    width: 230px; padding: 5px; border-radius: 10px;
+    border: 1px solid var(--panel-border); background: var(--panel);
+    box-shadow: 0 6px 20px rgba(0,0,0,.25);
+}
+.sort-menu button {
+    appearance: none; display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 7px 8px; border: 0; border-radius: 6px;
+    background: none; color: var(--text-2); font: inherit; font-size: 12px;
+    text-align: left; cursor: default;
+}
+.sort-menu button:hover, .sort-menu button:focus-visible { background: var(--hover); }
+.sort-menu button::before { content: ''; width: 12px; flex: 0 0 auto; }
+.sort-menu button[aria-checked=true]::before { content: '✓'; color: var(--blue-text); }
 
 /* list */
 .list {
@@ -1419,9 +1449,22 @@ button.chip:hover { color: var(--text); background: var(--hover); }
         </button>
     </div>
 
-    <div class="progress" id="prog">
-        <div class="bar"><i id="progBar"></i></div>
-        <span class="txt" id="progTxt"></span>
+    <div class="task-tools" id="taskTools">
+        <div class="progress" id="prog">
+            <div class="bar"><i id="progBar"></i></div>
+            <span class="txt" id="progTxt"></span>
+        </div>
+        <details class="sort" id="sortMenu">
+            <summary title="Sort tasks" aria-label="Sort tasks">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h7M2 8h5M2 12h3M12 3v10M9.5 10.5 12 13l2.5-2.5"/></svg>
+            </summary>
+            <div class="sort-menu" role="menu" aria-label="Sort tasks">
+                <button role="menuitemradio" aria-checked="true" data-sort="modified-asc">Modified date · oldest first</button>
+                <button role="menuitemradio" aria-checked="false" data-sort="modified-desc">Modified date · newest first</button>
+                <button role="menuitemradio" aria-checked="false" data-sort="title-asc">Title · A–Z</button>
+                <button role="menuitemradio" aria-checked="false" data-sort="title-desc">Title · Z–A</button>
+            </div>
+        </details>
     </div>
 
     <div class="list" id="list" tabindex="-1"></div>
@@ -1450,9 +1493,10 @@ const dateEl = $('date');
 const progEl = $('prog');
 const progBar = $('progBar');
 const progTxt = $('progTxt');
+const taskTools = $('taskTools');
+const sortMenu = $('sortMenu');
 
 const DAY = 86400000;
-const PRI = { urgent: 0, high: 1, medium: 2, low: 3 };
 
 const st = {
     tasks: [],
@@ -1464,6 +1508,7 @@ const st = {
     error: null,
     sel: null,
     menu: null,
+    sort: 'modified-asc',
     collapsed: { tomorrow: true, done: true },
     undo: null,
     closing: false,
@@ -1571,6 +1616,7 @@ function normTask(p) {
         uuid: g(p, 'block/uuid') ? String(g(p, 'block/uuid')) : '',
         status: identTail(g(p, 'logseq.property/status')),
         priority: identTail(g(p, 'logseq.property/priority')),
+        modifiedAt: num(g(p, 'block/updated-at')),
         deadline: num(g(p, 'logseq.property/deadline')),
         scheduled: num(g(p, 'logseq.property/scheduled'))
     };
@@ -1599,12 +1645,13 @@ function bucketOf(t) {
 }
 
 function sortTasks(a, b) {
-    const pa = a.priority in PRI ? PRI[a.priority] : 9;
-    const pb = b.priority in PRI ? PRI[b.priority] : 9;
-    if (pa !== pb) return pa - pb;
-    const da = minDate(a), db = minDate(b);
-    if (da !== db) return da - db;
-    return String(a.title).localeCompare(String(b.title));
+    const title = String(a.title).localeCompare(String(b.title), undefined, { sensitivity: 'base' });
+    if (st.sort.startsWith('title-')) return st.sort === 'title-desc' ? -title : title;
+    const da = num(a.modifiedAt), db = num(b.modifiedAt);
+    if (da == null && db != null) return 1;
+    if (db == null && da != null) return -1;
+    if (da != null && db != null && da !== db) return st.sort === 'modified-desc' ? db - da : da - db;
+    return title;
 }
 
 function groups() {
@@ -1756,6 +1803,7 @@ function render(opts) {
     const scrollTop = listEl.scrollTop;
     st.order = [];
     st.secOf = {};
+    taskTools.style.display = st.loaded ? '' : 'none';
 
     const b = bounds();
     dateEl.textContent = new Date(b.start).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -1768,7 +1816,7 @@ function render(opts) {
         progEl.style.display = 'none';
     } else {
         const gr = groups();
-        const doneItems = st.done.map(d => ({ id: d.id, uuid: d.uuid, title: d.title, links: d.links || [], status: 'done' }));
+        const doneItems = st.done.map(d => ({ id: d.id, uuid: d.uuid, title: d.title, links: d.links || [], modifiedAt: d.modifiedAt, status: 'done' })).sort(sortTasks);
 
         const total = gr.expired.length + gr.doing.length + gr.today.length + doneItems.length;
         progEl.style.display = total ? '' : 'none';
@@ -1927,10 +1975,11 @@ function act(id, kind, ms) {
 
     const restore = {};
     Object.keys(patch).forEach(k => { restore[k] = item[k] == null ? null : item[k]; });
+    t.modifiedAt = Date.now();
 
     if (patch.status === 'done') {
         st.tasks = st.tasks.filter(x => x !== t);
-        st.done.unshift({ id: t.id, uuid: t.uuid, title: t.title, links: t.links });
+        st.done.unshift({ id: t.id, uuid: t.uuid, title: t.title, links: t.links, modifiedAt: t.modifiedAt });
     } else {
         Object.keys(patch).forEach(k => { t[k] = patch[k]; });
     }
@@ -1968,12 +2017,13 @@ function undo() {
 
     if (u.restore.status === 'done') {
         st.tasks = st.tasks.filter(x => String(x.id) !== String(u.id));
-        if (!findDone(u.id)) st.done.unshift({ id: u.item.id, uuid: u.item.uuid, title: u.item.title, links: u.item.links });
+        if (!findDone(u.id)) st.done.unshift({ id: u.item.id, uuid: u.item.uuid, title: u.item.title, links: u.item.links, modifiedAt: Date.now() });
     } else {
         st.done = st.done.filter(x => String(x.id) !== String(u.id));
         let t = findTask(u.id);
         if (!t) { t = Object.assign({}, u.item); st.tasks.push(t); }
         Object.keys(u.restore).forEach(k => { t[k] = u.restore[k]; });
+        t.modifiedAt = Date.now();
     }
 
     sendUpdate(u.item, u.restore);
@@ -2036,7 +2086,7 @@ function submit(kind) {
         const ms = kind === 'today' ? todayStart() : addDays(todayStart(), 1);
         const req = ++st.req;
         const pt = parseTitle(text);
-        st.temps.push({ id: 'tmp' + req, req: req, pending: true, status: 'todo', priority: '', deadline: ms, scheduled: null, title: pt.text, links: pt.links });
+        st.temps.push({ id: 'tmp' + req, req: req, pending: true, status: 'todo', priority: '', modifiedAt: Date.now(), deadline: ms, scheduled: null, title: pt.text, links: pt.links });
         post({ action: 'capture', kind: kind, text: text, ms: ms, req: req });
         input.value = '';
         resizeInput();
@@ -2065,6 +2115,7 @@ function resetCapture() {
     capture.style.transform = '';
     st.menu = null;
     st.sel = null;
+    sortMenu.open = false;
     st.lastHeight = 0;
     resizeInput();
     render();
@@ -2110,6 +2161,21 @@ document.querySelectorAll('[data-kind]').forEach(button => {
 
 $('closeBtn').addEventListener('click', closePanel);
 $('dashBtn').addEventListener('click', () => post({ action: 'openPage' }));
+
+sortMenu.addEventListener('click', e => {
+    const option = e.target.closest('[data-sort]');
+    if (!option) return;
+    st.sort = option.dataset.sort;
+    sortMenu.querySelectorAll('[data-sort]').forEach(button => {
+        button.setAttribute('aria-checked', String(button === option));
+    });
+    sortMenu.open = false;
+    listEl.focus({ preventScroll: true });
+    render();
+});
+document.addEventListener('click', e => {
+    if (!sortMenu.contains(e.target)) sortMenu.open = false;
+});
 
 function onClick(e) {
     const target = e.target.closest('[data-act]');
@@ -2196,6 +2262,11 @@ document.addEventListener('keydown', e => {
 
     if (k === 'Escape') {
         e.preventDefault();
+        if (sortMenu.open) {
+            sortMenu.open = false;
+            sortMenu.querySelector('summary').focus({ preventScroll: true });
+            return;
+        }
         if (st.menu != null) {
             st.menu = null;
             listEl.focus({ preventScroll: true });
@@ -2232,7 +2303,7 @@ document.addEventListener('keydown', e => {
         return;
     }
 
-    if (inDate) return;
+    if (inDate || sortMenu.contains(e.target)) return;
     if (meta || e.ctrlKey || e.altKey) return;
 
     if (st.menu != null && /^[1-9]$/.test(k)) {
@@ -2297,7 +2368,7 @@ window.app = {
         meta = meta || {};
         if (meta.start) st.bounds = { start: meta.start, end: meta.end, end2: meta.end2 };
         st.done = (Array.isArray(meta.done) ? meta.done : []).map(d => ({
-            id: d.id, uuid: d.uuid || '', title: d.title || '', links: []
+            id: d.id, uuid: d.uuid || '', title: d.title || '', links: [], modifiedAt: num(d.modifiedAt)
         }));
         st.temps = [];
         st.loaded = true;
