@@ -23,7 +23,7 @@ working after every change.
   are at the top of the script (ADR 0006).
 - The CLI is a node script and needs the login-shell `PATH`; the script captures the
   env once via `hs.execute("/usr/bin/env", true)`.
-- UI and all artifacts are in English; talk to the user in Russian.
+- UI and all artifacts are in English.
 
 ## Script architecture
 
