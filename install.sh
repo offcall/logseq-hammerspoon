@@ -37,29 +37,163 @@ lua_string() {
     printf '"%s"' "${value//\"/\\\"}"
 }
 
+# --- Logseq CLI helpers (used only while creating the user config) ---
+
+MAX_LISTED=10
+PAGE_QUERY='[:find ?t :in $ ?want :where [?p :block/name ?want] [?p :block/title ?t]]'
+SIMILAR_QUERY='[:find ?t :in $ ?part :where [?p :block/name ?n] [(clojure.string/includes? ?n ?part)] [?p :block/title ?t]]'
+HINT_QUERY='[:find ?t :where [?p :block/name ?n] (or [(clojure.string/includes? ?n "dashboard")] [(clojure.string/includes? ?n "home")] [(clojure.string/includes? ?n "index")] [(clojure.string/includes? ?n "inbox")]) [?p :block/title ?t]]'
+
+find_cli() {
+    LOGIN_PATH=$("${SHELL:-/bin/zsh}" -lic 'printf "%s" "$PATH"' </dev/null 2>/dev/null | tail -n 1 || true)
+    CLI=$(PATH="${LOGIN_PATH:-$PATH}" command -v logseq || true)
+    if [[ "$CLI" != /* ]]; then
+        CLI="$HOME/.local/bin/logseq"
+    fi
+}
+
+cli() {
+    PATH="${LOGIN_PATH:-$PATH}" "$CLI" --output json "$@" </dev/null 2>/dev/null || true
+}
+
+# Prints one item per line from CLI JSON: "graphs" (graph list) or
+# "titles" (first column of a query result). Prints nothing on errors.
+json_lines() {
+    osascript -l JavaScript -e '
+function run(argv) {
+    try {
+        var d = JSON.parse(argv[0]);
+        if (d.status !== "ok") return "";
+        var items = argv[1] === "graphs"
+            ? d.data.graphs
+            : d.data.result.map(function (row) { return row[0]; });
+        return items.join("\n");
+    } catch (e) { return ""; }
+}' "$1" "$2" 2>/dev/null || true
+}
+
+query_ok() {
+    [[ "$1" == *'"status":"ok"'* ]]
+}
+
+lower() {
+    perl -CSA -e 'print lc $ARGV[0]' -- "$1"
+}
+
+page_titles() {
+    json_lines "$(cli --graph "$GRAPH" --timeout-ms 45000 query --query "$1" ${2:+--inputs "$2"})" titles
+}
+
+join_lines() {
+    awk 'NR > 1 { printf ", " } { printf "%s", $0 }' <<<"$1"
+}
+
+print_list() {
+    local count
+    count=$(grep -c . <<<"$1" || true)
+    awk -v max="$MAX_LISTED" 'NR <= max { printf "  %d) %s\n", NR, $0 }' <<<"$1"
+    if ((count > MAX_LISTED)); then
+        printf '  ... and %d more (type a name)\n' $((count - MAX_LISTED))
+    fi
+}
+
+# Sets GRAPH. Only names from `graph list` are accepted: querying an unknown
+# graph makes the CLI create an empty one.
+choose_graph() {
+    local graphs answer similar
+    graphs=$(json_lines "$(cli graph list)" graphs)
+
+    if [[ -z "$graphs" ]]; then
+        printf 'Could not list graphs with %s; the name is not checked.\n' "$CLI"
+        GRAPH=${LOGSEQ_GRAPH:-$(ask 'Logseq graph name (e.g. Personal): ')}
+        [[ -n "$GRAPH" ]] || fail_no_answer LOGSEQ_GRAPH '<graph>'
+        GRAPH_CHECKED=""
+        return
+    fi
+
+    printf 'Local Logseq graphs:\n'
+    print_list "$graphs"
+
+    while true; do
+        answer=${LOGSEQ_GRAPH:-$(ask 'Graph (number or name, e.g. 1): ')}
+        [[ -n "$answer" ]] || fail_no_answer LOGSEQ_GRAPH '<graph>'
+
+        if [[ "$answer" =~ ^[0-9]+$ ]] && ((10#$answer >= 1 && 10#$answer <= MAX_LISTED)); then
+            answer=$(sed -n "$((10#$answer))p" <<<"$graphs")
+        fi
+
+        if [[ -n "$answer" ]] && grep -qxF -- "$answer" <<<"$graphs"; then
+            GRAPH=$answer
+            GRAPH_CHECKED=1
+            return
+        fi
+
+        printf 'No graph "%s".\n' "$answer"
+        similar=$(grep -iF -- "$answer" <<<"$graphs" | head -n 5 || true)
+        [[ -z "$similar" ]] || printf 'Similar: %s\n' "$(join_lines "$similar")"
+        [[ -z "${LOGSEQ_GRAPH:-}" ]] || exit 1
+    done
+}
+
+# Sets DASHBOARD (may be empty). Checks the page exists when the graph is known.
+choose_dashboard() {
+    local answer hints found similar result
+
+    if [[ -n "$GRAPH_CHECKED" ]]; then
+        hints=$(page_titles "$HINT_QUERY" | head -n 5 || true)
+        [[ -z "$hints" ]] || printf 'Pages that may fit: %s\n' "$(join_lines "$hints")"
+    fi
+
+    while true; do
+        if [[ -n "${LOGSEQ_DASHBOARD+set}" ]]; then
+            answer=$LOGSEQ_DASHBOARD
+        else
+            answer=$(ask 'Page for the panel'\''s top-right button (e.g. Dashboard; empty = no button): ')
+        fi
+
+        if [[ -z "$answer" || -z "$GRAPH_CHECKED" ]]; then
+            DASHBOARD=$answer
+            return
+        fi
+
+        result=$(cli --graph "$GRAPH" --timeout-ms 45000 query --query "$PAGE_QUERY" \
+            --inputs "[$(lua_string "$(lower "$answer")")]")
+        if ! query_ok "$result"; then
+            printf 'Could not check pages; saving "%s" unchecked.\n' "$answer"
+            DASHBOARD=$answer
+            return
+        fi
+
+        found=$(json_lines "$result" titles | head -n 1 || true)
+        if [[ -n "$found" ]]; then
+            DASHBOARD=$found
+            return
+        fi
+
+        printf 'No page "%s" in graph "%s".\n' "$answer" "$GRAPH"
+        similar=$(page_titles "$SIMILAR_QUERY" "[$(lua_string "$(lower "$answer")")]" | head -n 5 || true)
+        [[ -z "$similar" ]] || printf 'Similar: %s\n' "$(join_lines "$similar")"
+        [[ -z "${LOGSEQ_DASHBOARD+set}" ]] || exit 1
+    done
+}
+
+fail_no_answer() {
+    printf 'No answer. Re-run with %s="%s".\n' "$1" "$2" >&2
+    exit 1
+}
+
 # Wrapped in main so a partial download (curl | bash) never runs.
 main() {
     mkdir -p "$CONFIG_DIR"
 
     # 1. User config: created once, kept on updates.
     if [[ ! -e "$USER_CONFIG" ]]; then
-        GRAPH=${LOGSEQ_GRAPH:-$(ask 'Logseq graph name (e.g. Personal): ')}
-        if [[ -z "$GRAPH" ]]; then
-            printf 'No graph name. Re-run with LOGSEQ_GRAPH="<graph>".\n' >&2
-            exit 1
+        find_cli
+        if [[ ! -x "$CLI" ]]; then
+            printf 'Logseq CLI not found; using %s (edit %s if wrong).\n' "$CLI" "$USER_CONFIG"
         fi
-
-        if [[ -n "${LOGSEQ_DASHBOARD+set}" ]]; then
-            DASHBOARD=$LOGSEQ_DASHBOARD
-        else
-            DASHBOARD=$(ask 'Page for the panel'\''s top-right button (e.g. Dashboard; empty = no button): ')
-        fi
-
-        CLI=$("${SHELL:-/bin/zsh}" -lic 'command -v logseq' </dev/null 2>/dev/null | tail -n 1 || true)
-        if [[ "$CLI" != /* ]]; then
-            CLI="$HOME/.local/bin/logseq"
-            printf 'Logseq CLI not found on PATH; using %s (edit %s if wrong).\n' "$CLI" "$USER_CONFIG"
-        fi
+        choose_graph
+        choose_dashboard
 
         if [[ -n "$DASHBOARD" ]]; then
             DASHBOARD_VALUE=$(lua_string "$DASHBOARD")

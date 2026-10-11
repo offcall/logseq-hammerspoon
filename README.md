@@ -27,8 +27,9 @@ without switching windows.
    curl -fsSL https://raw.githubusercontent.com/offcall/logseq-hammerspoon/main/install.sh | bash
    ```
 
-   The installer asks for your graph name and an optional page for the panel's
-   top-right button, then restarts Hammerspoon. To skip the questions:
+   The installer lists your local graphs, asks which one to use and which page the
+   panel's top-right button opens (it checks that the page exists and suggests
+   similar names), then restarts Hammerspoon. To skip the questions:
 
    ```sh
    curl -fsSL https://raw.githubusercontent.com/offcall/logseq-hammerspoon/main/install.sh \
