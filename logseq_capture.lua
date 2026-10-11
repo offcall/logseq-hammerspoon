@@ -18,8 +18,8 @@
 --   ⌘Z           → undo last action       ⌘R       → refresh
 --   / or n       → back to the input      Esc      → close menu / panel
 --
--- PEEK: a small pill bottom-right with your current "Doing" task;
--- shows elapsed time since the task was last started through this panel.
+-- PEEK: a small pill bottom-right with your current "Doing" tasks, one row
+-- each, with elapsed time since the task was last started through this panel.
 -- slides right on hover to reveal the screen underneath.
 --
 -- Talks to Logseq only through the official CLI (`logseq … --output json`),
@@ -43,7 +43,8 @@ local REFRESH_INTERVAL = 300     -- seconds; background refresh (for the peek)
 
 local SHOW_PEEK = true
 local PEEK_WIDTH = 380
-local PEEK_HEIGHT = 80           -- incl. 8px transparent padding
+local PEEK_ROW_HEIGHT = 28       -- one Doing task in the peek
+local PEEK_MAX_ROWS = 5
 
 -- Optional global hotkey to toggle the panel, e.g. { {"cmd", "alt"}, "L" }
 local OPEN_HOTKEY = nil
@@ -721,7 +722,13 @@ applyData = function()
 end
 
 
-local function positionPeek()
+local function peekHeight(rows)
+    -- 8px transparent padding on each side + 4px pill padding on each side.
+    return math.min(rows, PEEK_MAX_ROWS) * PEEK_ROW_HEIGHT + 24
+end
+
+
+local function positionPeek(rows)
     if not S.peek then
         return
     end
@@ -733,12 +740,13 @@ local function positionPeek()
     end
 
     local frame = screen:frame()
+    local height = peekHeight(rows)
 
     S.peek:frame({
         x = frame.x + frame.w - PEEK_WIDTH - SCREEN_MARGIN + 8,
-        y = frame.y + frame.h - PEEK_HEIGHT - SCREEN_MARGIN + 8,
+        y = frame.y + frame.h - height - SCREEN_MARGIN + 8,
         w = PEEK_WIDTH,
-        h = PEEK_HEIGHT,
+        h = height,
     })
 end
 
@@ -785,57 +793,40 @@ updatePeek = function()
         return
     end
 
-    local doing
-    local left = 0
-    local finish = S.cache["end"]
+    local tasks = {}
 
     for _, pull in ipairs(pulls()) do
-        local status = identOf(pull["logseq.property/status"])
+        if identOf(pull["logseq.property/status"]) == "doing" then
+            local refs = {}
 
-        if status == "doing" then
-            doing = doing or pull
-        else
-            local deadline = tonumber(pull["logseq.property/deadline"])
-            local scheduled = tonumber(pull["logseq.property/scheduled"])
-
-            local due =
-                (deadline and deadline < finish) or
-                (scheduled and scheduled < finish)
-
-            if due then
-                left = left + 1
+            if type(pull["block/refs"]) == "table" then
+                for _, ref in ipairs(pull["block/refs"]) do
+                    if type(ref) == "table" and ref["block/uuid"] and ref["block/title"] then
+                        refs[#refs + 1] = {
+                            uuid = tostring(ref["block/uuid"]),
+                            title = tostring(ref["block/title"]),
+                        }
+                    end
+                end
             end
+
+            tasks[#tasks + 1] = {
+                id = pull["db/id"],
+                title = tostring(pull["block/title"] or ""),
+                refs = refs,
+                startedAt = S.taskStarts[fmtInt(pull["db/id"])],
+            }
         end
     end
 
-    if not doing then
+    if #tasks == 0 then
         hidePeek()
         return
     end
 
-    local refs = {}
+    jsPeek("peek.set(" .. hs.json.encode(tasks) .. ")")
 
-    if type(doing["block/refs"]) == "table" then
-        for _, ref in ipairs(doing["block/refs"]) do
-            if type(ref) == "table" and ref["block/uuid"] and ref["block/title"] then
-                refs[#refs + 1] = {
-                    uuid = tostring(ref["block/uuid"]),
-                    title = tostring(ref["block/title"]),
-                }
-            end
-        end
-    end
-
-    jsPeek("peek.set(" .. hs.json.encode({
-        id = doing["db/id"],
-        uuid = tostring(doing["block/uuid"] or ""),
-        title = tostring(doing["block/title"] or ""),
-        refs = refs,
-        left = left,
-        startedAt = S.taskStarts[fmtInt(doing["db/id"])],
-    }) .. ")")
-
-    positionPeek()
+    positionPeek(#tasks)
 
     if S.peekHovered then
         return
@@ -2380,54 +2371,49 @@ html, body {
 }
 body { padding: 8px; }
 .pill {
-    height: 100%; display: flex; align-items: center; gap: 10px;
-    padding: 0 8px 0 14px; border-radius: 16px;
+    height: 100%; display: flex; flex-direction: column; justify-content: center;
+    padding: 4px 8px 4px 12px; border-radius: 14px;
     border: 1px solid var(--border); background: var(--panel);
     box-shadow: 0 2px 6px rgba(0,0,0,.28);
     color: var(--text);
 }
-.ring { flex: 0 0 auto; color: var(--orange); display: flex; }
-.txt {
+.row {
     appearance: none; border: 0; background: none; padding: 0; margin: 0;
-    flex: 1; min-width: 0; text-align: left; cursor: default; color: inherit; font: inherit;
-    display: flex; flex-direction: column; gap: 2px;
+    height: 28px; flex: 0 0 auto; width: 100%;
+    display: flex; align-items: center; gap: 8px;
+    text-align: left; cursor: default; color: inherit; font: inherit;
 }
-.lbl { font-size: 10px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--orange); }
-.ttl { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ring { flex: 0 0 auto; color: var(--orange); display: flex; }
+.ttl { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .elapsed {
-    flex: 0 0 auto; min-width: 65px; text-align: center;
+    flex: 0 0 auto; min-width: 56px; text-align: right;
     font-size: 13px; font-weight: 450; font-variant-numeric: tabular-nums;
     color: var(--muted); opacity: .8;
 }
 </style>
 </head>
 <body>
-<div class="pill">
-    <span class="ring"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7.25" stroke="currentColor" stroke-width="1.5"/><path d="M9 1.75a7.25 7.25 0 0 1 0 14.5z" fill="currentColor"/></svg></span>
-    <button class="txt" data-act="expand" title="Open panel">
-        <span class="lbl" id="lbl">In progress</span>
-        <span class="ttl" id="ttl"></span>
-    </button>
-    <span class="elapsed" id="elapsed" title="Elapsed since starting in this panel"></span>
-</div>
+<div class="pill" id="pill"></div>
 <script>
 (function () {
 'use strict';
-let task = null;
+let tasks = [];
 let hoverAnimation = null;
 let elapsedTimer = null;
-const pill = document.querySelector('.pill');
-const elapsed = document.getElementById('elapsed');
-function renderElapsed() {
-    if (!task || !Number.isFinite(task.startedAt)) {
-        elapsed.textContent = '';
-        return;
-    }
-    const seconds = Math.max(0, Math.floor((Date.now() - task.startedAt) / 1000));
+const pill = document.getElementById('pill');
+const RING = '<svg width="14" height="14" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7.25" stroke="currentColor" stroke-width="1.5"/><path d="M9 1.75a7.25 7.25 0 0 1 0 14.5z" fill="currentColor"/></svg>';
+function formatElapsed(startedAt) {
+    if (!Number.isFinite(startedAt)) return '';
+    const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor(seconds / 60) % 60;
     const pad = n => String(n).padStart(2, '0');
-    elapsed.textContent = (hours ? hours + ':' : '') + pad(minutes) + ':' + pad(seconds % 60);
+    return (hours ? hours + ':' : '') + pad(minutes) + ':' + pad(seconds % 60);
+}
+function renderElapsed() {
+    pill.querySelectorAll('.elapsed').forEach((el, i) => {
+        el.textContent = formatElapsed(tasks[i] && tasks[i].startedAt);
+    });
 }
 function post(m) {
     try { window.webkit.messageHandlers.logseqPeek.postMessage(m); } catch (e) { console.error(e); }
@@ -2455,20 +2441,29 @@ window.peek = {
         );
         if (on) hoverAnimation.onfinish = () => post({ action: 'hoverHidden' });
     },
-    set(d) {
-        task = d;
+    set(list) {
+        tasks = Array.isArray(list) ? list.slice(0, 5) : [];
+        pill.textContent = '';
+        tasks.forEach(t => {
+            const row = document.createElement('button');
+            row.className = 'row';
+            row.dataset.act = 'expand';
+            row.title = 'Open panel';
+            row.innerHTML = '<span class="ring">' + RING + '</span>' +
+                '<span class="ttl"></span>' +
+                '<span class="elapsed" title="Elapsed since starting in this panel"></span>';
+            row.querySelector('.ttl').textContent = cleanTitle(t.title, t.refs);
+            pill.appendChild(row);
+        });
         if (elapsedTimer) clearInterval(elapsedTimer);
         elapsedTimer = null;
         renderElapsed();
-        if (Number.isFinite(d.startedAt)) elapsedTimer = setInterval(renderElapsed, 1000);
-        document.getElementById('ttl').textContent = cleanTitle(d.title, d.refs);
-        document.getElementById('lbl').textContent =
-            'In progress' + (d.left ? ' · ' + d.left + ' left today' : '');
+        if (tasks.some(t => Number.isFinite(t.startedAt))) elapsedTimer = setInterval(renderElapsed, 1000);
     }
 };
 document.addEventListener('click', e => {
     const b = e.target.closest('[data-act]');
-    if (!b || !task) return;
+    if (!b || !tasks.length) return;
     const act = b.dataset.act;
     if (act === 'expand') post({ action: 'expand' });
 });
@@ -2626,7 +2621,7 @@ local function createPeek()
     end)
 
     S.peek = hs.webview.new(
-        { x = 0, y = 0, w = PEEK_WIDTH, h = PEEK_HEIGHT },
+        { x = 0, y = 0, w = PEEK_WIDTH, h = peekHeight(1) },
         { javaScriptEnabled = true },
         S.peekContent
     )
