@@ -1233,7 +1233,11 @@ textarea:focus {
     border: 1px solid var(--panel-border); background: var(--field);
 }
 .picker[hidden] { display: none; }
-.picker-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.picker-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.picker-opts .opt {
+    flex-direction: row; align-items: baseline; justify-content: space-between; gap: 6px;
+    padding: 4px 8px; white-space: nowrap;
+}
 .opt.sel { border-color: var(--sel-border); background: var(--sel); }
 .cal { margin-top: 8px; padding: 8px 2px 0; border-top: 1px solid var(--line); }
 .cal-head {
@@ -2271,9 +2275,13 @@ function renderPicker() {
     if (!st.picker) { pickerEl.innerHTML = ''; return; }
     const opts = quickDates().map((o, i) =>
         '<button class="opt' + (o.ms === st.picker.ms ? ' sel' : '') + '" data-ms="' + o.ms + '">' +
-        '<span>' + esc(o.label) + '</span><span class="hint">' + (i + 1) + ' · ' + esc(fmtDay(o.ms)) + '</span></button>'
+        '<span>' + esc(o.label) + '</span><span class="hint">' + (i + 1) + ' · ' + esc(fmtShortDay(o.ms)) + '</span></button>'
     ).join('');
     pickerEl.innerHTML = '<div class="picker-opts">' + opts + '</div>' + calendarHtml(st.picker);
+}
+
+function fmtShortDay(ms) {
+    return new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 function setPicker(p) {
@@ -2283,14 +2291,14 @@ function setPicker(p) {
     requestAnimationFrame(reportHeight);
 }
 
+// Opens with no day selected; the first arrow press puts the cursor on today.
 function togglePicker() {
-    const ms = addDays(todayStart(), 1);
-    setPicker(st.picker ? null : { ms: ms, month: monthStart(ms) });
+    setPicker(st.picker ? null : { ms: null, month: monthStart(todayStart()) });
     input.focus();
 }
 
 function movePickerDay(days) {
-    const ms = Math.max(todayStart(), addDays(st.picker.ms, days));
+    const ms = st.picker.ms == null ? todayStart() : Math.max(todayStart(), addDays(st.picker.ms, days));
     setPicker({ ms: ms, month: monthStart(ms) });
 }
 
@@ -2562,7 +2570,11 @@ document.addEventListener('keydown', e => {
             if (/^[1-9]$/.test(k) && Number(k) <= quick.length) { e.preventDefault(); submit('date', quick[Number(k) - 1].ms); return; }
             const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[k];
             if (step) { e.preventDefault(); movePickerDay(step); return; }
-            if (k === 'Enter' && !e.shiftKey) { e.preventDefault(); submit('date', st.picker.ms); return; }
+            if (k === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (st.picker.ms != null) submit('date', st.picker.ms);
+                return;
+            }
         }
         if (meta && lower === 'b') { e.preventDefault(); submit('backlog'); return; }
         if (meta && lower === 'p') { e.preventDefault(); submit('page'); return; }
