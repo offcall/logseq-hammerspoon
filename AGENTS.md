@@ -18,9 +18,9 @@ working after every change.
 - Hammerspoon. Installation and the Hammerspoon config are managed by the user:
   do not edit `~/.hammerspoon/`, reload Hammerspoon, or send it commands. Work only on
   `logseq_capture.lua` in this repository.
-- Logseq (DB version). Graph, dashboard page, and CLI path are configured at the top
-  of the script (currently graph `Personal`, dashboard `Dashboard`, CLI
-  `~/.local/bin/logseq`).
+- Logseq (DB version). Graph, dashboard page, CLI path, and open hotkey come from
+  `~/.hammerspoon/logseq_capture_config.lua`, created by `install.sh`; defaults
+  are at the top of the script (ADR 0006).
 - The CLI is a node script and needs the login-shell `PATH`; the script captures the
   env once via `hs.execute("/usr/bin/env", true)`.
 - UI and all artifacts are in English; talk to the user in Russian.

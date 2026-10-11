@@ -30,9 +30,47 @@
 -- asynchronously via hs.task, one command at a time.
 -- ============================================================
 
-local LOGSEQ = "/Users/alec/.local/bin/logseq"
-local GRAPH = "Personal"
-local DASHBOARD_PAGE = "Dashboard"
+-- ============================================================
+-- USER CONFIG
+-- Optional ~/.hammerspoon/logseq_capture_config.lua returning a table,
+-- e.g. return { graph = "Work", dashboardPage = false }
+-- Keys: logseq (CLI path), graph, dashboardPage (false hides the
+-- button), openHotkey. Missing keys use the defaults below.
+-- ============================================================
+
+local CONFIG_FILE = hs.configdir .. "/logseq_capture_config.lua"
+
+local function loadUserConfig()
+    if not hs.fs.attributes(CONFIG_FILE) then
+        return {}
+    end
+
+    local ok, config = pcall(dofile, CONFIG_FILE)
+
+    if not ok or type(config) ~= "table" then
+        print("[Logseq Panel] bad config " .. CONFIG_FILE .. ": " .. tostring(config))
+        hs.alert.show("❌ Logseq: bad config file, using defaults", 3)
+        return {}
+    end
+
+    return config
+end
+
+local USER_CONFIG = loadUserConfig()
+
+local function setting(key, default)
+    local value = USER_CONFIG[key]
+
+    if value == nil then
+        return default
+    end
+
+    return value
+end
+
+local LOGSEQ = setting("logseq", os.getenv("HOME") .. "/.local/bin/logseq")
+local GRAPH = setting("graph", "Personal")
+local DASHBOARD_PAGE = setting("dashboardPage", "Dashboard")
 
 local WIDTH = 460
 local MIN_HEIGHT = 150
@@ -51,7 +89,7 @@ local PEEK_ROW_HEIGHT = 28       -- one Doing task in the peek
 local PEEK_MAX_ROWS = 5
 
 -- Optional global hotkey to toggle the panel, e.g. { {"cmd", "alt"}, "L" }
-local OPEN_HOTKEY = nil
+local OPEN_HOTKEY = setting("openHotkey", nil)
 
 -- Status values as the CLI accepts them (it normalizes case / prefixes).
 local STATUS = {
@@ -1175,6 +1213,7 @@ body {
 }
 .linkbtn:hover { color: var(--text); }
 .top-right .sep { width: 1px; height: 12px; background: var(--line); margin: 0 3px; }
+.top-right [hidden] { display: none; }
 
 /* keycaps */
 .key {
@@ -2819,6 +2858,14 @@ window.app = {
         st.error = null;
         render();
     },
+    setDashboard(info) {
+        const page = (info && info.page) || '';
+        const btn = $('dashBtn');
+        btn.hidden = !page;
+        btn.nextElementSibling.hidden = !page;
+        btn.textContent = page + ' ↗';
+        btn.title = 'Open ' + page + ' in Logseq';
+    },
     setLoading(on) {
         st.loading = !!on;
         dotEl.className = 'dot' + (st.loading ? ' loading' : '') + (st.error ? ' error' : '');
@@ -3008,6 +3055,7 @@ local function onPanelMessage(message)
 
     if action == "ready" then
         S.ready = true
+        jsPanel("app.setDashboard(" .. hs.json.encode({ page = DASHBOARD_PAGE or "" }) .. ")")
         applyData()
 
         if S.pendingShow then
@@ -3060,7 +3108,7 @@ local function onPanelMessage(message)
             openLogseqUrl("block-id=" .. uuid)
         end
 
-    elseif action == "openPage" then
+    elseif action == "openPage" and DASHBOARD_PAGE then
         hideCapture()
         openLogseqUrl("page=" .. urlEncode(DASHBOARD_PAGE))
     end
