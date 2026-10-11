@@ -27,7 +27,13 @@ working after every change.
 
 ## Script architecture
 
-One Lua file; the panels' HTML/CSS/JS is embedded as long strings (`[==[ ... ]==]`).
+Lua package `logseq_capture/` (ADR 0007). `init.lua` only wires modules and starts
+timers; each module has one responsibility (`config`, `state`, `util`, `bridge`,
+`cli`, `queue`, `done`, `tasks`, `actions`, `peek`, `panel`, `corner`, `assets`).
+Modules do not `require` each other in cycles: `init.lua` passes callbacks
+(`queue.onData`, `peek.create(onExpand)`). The web UI lives in
+`logseq_capture/web/` as plain `.html` / `.css` / `.js`; `assets.page()` inlines
+the `<link rel="stylesheet">` and `<script src>` files into one HTML string at load.
 
 - **Panel** (`hs.webview`, `S.popup`) — capture textarea plus the task list
   (Expired · In progress · Today · Tomorrow · Done today). Opened by the hot corner
@@ -35,13 +41,13 @@ One Lua file; the panels' HTML/CSS/JS is embedded as long strings (`[==[ ... ]==
   focus loss.
 - **Peek** (`S.peek`) — small pill with the current Doing task (pause/done buttons,
   click opens the panel). The window is `nonactivating`.
-- **State** — global table `_G.logseqCapture` (local alias `S`). The cleanup block at
-  the top of the file stops timers, the hotkey, the running `hs.task`, and deletes
+- **State** — global table `_G.logseqCapture` (local alias `S`, module `state.lua`,
+  required first). Its cleanup block stops timers, the hotkey, the running `hs.task`, and deletes
   webviews of the previous instance on reload. Every new long-lived object (timer,
   webview, hotkey, watcher) must be added to that cleanup.
 - **JS ↔ Lua bridge** — JS → Lua via
   `window.webkit.messageHandlers.{logseqCapture,logseqPeek}.postMessage({action, ...})`;
-  Lua → JS via `evaluateJavaScript` (`jsPanel` / `jsPeek` call `window.app.*` /
+  Lua → JS via `evaluateJavaScript` (`bridge.jsPanel` / `bridge.jsPeek` call `window.app.*` /
   `window.peek.*`).
 
 ## Working with Logseq
@@ -66,8 +72,8 @@ One Lua file; the panels' HTML/CSS/JS is embedded as long strings (`[==[ ... ]==
   in JS).
 - The UI is optimistic: changes apply in JS immediately; CLI errors come back via
   `app.result({req, ok: false, message})` and show as a toast.
-- When changing hotkeys, update the header comment of the script and the footer
-  (`renderFoot`).
+- When changing hotkeys, update the header comment of `logseq_capture/init.lua` and
+  the footer (`renderFoot` in `web/panel.js`).
 - Validate by reloading the Hammerspoon config and reading the console: logs are
   prefixed `[Logseq Panel]`, every CLI call is logged as `RUN:`.
 
