@@ -1,0 +1,42 @@
+:root {
+    --panel: rgba(28,28,31,.97); --border: rgba(255,255,255,.14);
+    --text: rgba(255,255,255,.92); --muted: rgba(255,255,255,.5);
+    --btn: rgba(255,255,255,.06); --btn-border: rgba(255,255,255,.10);
+    --orange: #f5a524; --blue: #0a84ff;
+}
+@media (prefers-color-scheme: light) {
+    :root {
+        --panel: rgba(248,248,250,.97); --border: rgba(0,0,0,.10);
+        --text: rgba(0,0,0,.87); --muted: rgba(0,0,0,.5);
+        --btn: rgba(0,0,0,.045); --btn-border: rgba(0,0,0,.08);
+        --orange: #c77700;
+    }
+}
+* { box-sizing: border-box; }
+html, body {
+    margin: 0; width: 100%; height: 100%; overflow: hidden;
+    background: transparent !important;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none;
+}
+body { padding: 8px; }
+.pill {
+    height: 100%; display: flex; flex-direction: column; justify-content: center;
+    padding: 4px 8px 4px 12px; border-radius: 14px;
+    border: 1px solid var(--border); background: var(--panel);
+    box-shadow: 0 2px 6px rgba(0,0,0,.28);
+    color: var(--text);
+}
+.row {
+    appearance: none; border: 0; background: none; padding: 0; margin: 0;
+    height: 28px; flex: 0 0 auto; width: 100%;
+    display: flex; align-items: center; gap: 8px;
+    text-align: left; cursor: default; color: inherit; font: inherit;
+}
+.ring { flex: 0 0 auto; color: var(--orange); display: flex; }
+.ttl { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.elapsed {
+    flex: 0 0 auto; min-width: 56px; text-align: right;
+    font-size: 13px; font-weight: 450; font-variant-numeric: tabular-nums;
+    color: var(--muted); opacity: .8;
+}
