@@ -6,6 +6,7 @@
 --   Shift+Enter  → newline
 --   Cmd+T        → Task for Today      (deadline = today)
 --   Cmd+Shift+T  → Task for Tomorrow   (deadline = tomorrow)
+--   Cmd+D        → Task for a date     (picker: 1–6 quick, arrows, ↩ create)
 --   Cmd+B        → Backlog task
 --   Cmd+P        → Page (create + open in Logseq)
 --   ↓ / Tab      → jump into the task list
@@ -943,7 +944,7 @@ local function handleCapture(body)
             end
         )
 
-    elseif kind == "today" or kind == "tomorrow" then
+    elseif kind == "today" or kind == "tomorrow" or kind == "date" then
         local ms = tonumber(body.ms) or dayStartMs(kind == "today" and 0 or 1)
 
         enqueueWrite(
@@ -1206,7 +1207,7 @@ textarea:focus {
 .actions {
     flex: 0 0 auto;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 6px; margin-top: 8px;
 }
 .actions button {
@@ -1223,6 +1224,40 @@ textarea:focus {
 .actions button.primary { background: rgba(10,132,255,.16); border-color: rgba(10,132,255,.34); }
 .actions button.primary:hover { background: rgba(10,132,255,.23); }
 .actions svg { flex: 0 0 auto; opacity: .8; }
+.actions button.on { background: var(--sel); border-color: var(--sel-border); color: var(--text); }
+
+/* date picker */
+.picker {
+    flex: 0 0 auto;
+    margin-top: 8px; padding: 8px; border-radius: 12px;
+    border: 1px solid var(--panel-border); background: var(--field);
+}
+.picker[hidden] { display: none; }
+.picker-opts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.opt.sel { border-color: var(--sel-border); background: var(--sel); }
+.cal { margin-top: 8px; padding: 8px 2px 0; border-top: 1px solid var(--line); }
+.cal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 4px 6px; font-size: 12px; font-weight: 600;
+}
+.cal-nav {
+    appearance: none; border: 0; background: none; padding: 0 6px;
+    color: var(--muted); font: inherit; font-size: 14px; cursor: default;
+}
+.cal-nav:hover:not(:disabled) { color: var(--text); }
+.cal-nav:disabled { opacity: .3; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.cal-dw { font-size: 10px; color: var(--faint); padding: 2px 0 4px; }
+.cal-day {
+    appearance: none; height: 26px; padding: 0;
+    border: 0; border-radius: 7px; background: none;
+    color: var(--text-2); font: inherit; font-size: 12px;
+    font-variant-numeric: tabular-nums; cursor: default;
+}
+.cal-day:hover:not(:disabled) { background: var(--hover); }
+.cal-day:disabled { color: var(--faint); opacity: .5; }
+.cal-day.today { color: var(--blue-text); font-weight: 700; }
+.cal-day.cur { background: var(--blue); color: #fff; font-weight: 600; }
 
 /* progress */
 .task-tools {
@@ -1465,6 +1500,9 @@ button.chip:hover { color: var(--text); background: var(--hover); }
         <button data-kind="tomorrow" title="Task for tomorrow (⌘⇧T)">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/></svg>Tmrw
         </button>
+        <button data-kind="date" id="dateBtn" title="Task for a date (⌘D)">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg>Date
+        </button>
         <button data-kind="backlog" title="Backlog task (⌘B)">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 9.5h3l1 1.5h3l1-1.5h3V13h-11z M2.5 9.5 4 4h8l1.5 5.5"/></svg>Backlog
         </button>
@@ -1472,6 +1510,8 @@ button.chip:hover { color: var(--text); background: var(--hover); }
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 2h5l3 3v9H4z M9 2v3h3"/></svg>Page
         </button>
     </div>
+
+    <div class="picker" id="picker" hidden></div>
 
     <div class="task-tools" id="taskTools">
         <div class="progress" id="prog">
@@ -1525,6 +1565,8 @@ const progBar = $('progBar');
 const progTxt = $('progTxt');
 const taskTools = $('taskTools');
 const sortMenu = $('sortMenu');
+const pickerEl = $('picker');
+const dateBtn = $('dateBtn');
 const searchEl = $('search');
 const searchInput = $('searchInput');
 
@@ -1540,6 +1582,7 @@ const st = {
     error: null,
     sel: null,
     menu: null,
+    picker: null,
     sort: 'modified-asc',
     query: '',
     collapsed: { tomorrow: true, done: true },
@@ -1588,6 +1631,10 @@ function isoDate(ms) {
     const d = new Date(ms);
     const p = n => String(n).padStart(2, '0');
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function monthStart(ms) {
+    const d = new Date(ms);
+    return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
 }
 function dayLabel(ms) {
     const s = todayStart();
@@ -1906,7 +1953,9 @@ function cssEsc(s) {
 function renderFoot() {
     const h = (k, label) => '<span class="h"><span class="key">' + k + '</span>' + label + '</span>';
     let html;
-    if (document.activeElement === input) {
+    if (st.picker) {
+        html = h('1–6', 'quick') + h('←→↑↓', 'day') + h('↩', 'create') + h('esc', 'back to text');
+    } else if (document.activeElement === input) {
         html = h('↩', 'note') + h('⌘T', 'today') + h('⌘⇧T', 'tmrw') + h('⌘B', 'backlog') + h('⌘P', 'page') + h('↓', 'tasks');
     } else if (document.activeElement === searchInput) {
         html = h('↓', 'tasks') + h('esc', 'clear') + h('⌘F', 'search');
@@ -2136,21 +2185,26 @@ function focusInput() {
 /* CAPTURE                                                  */
 /* ======================================================== */
 
-function submit(kind) {
+function submit(kind, dateMs) {
     const text = input.value.trim();
     if (!text || st.closing) { input.focus(); return; }
 
-    if (kind === 'today' || kind === 'tomorrow') {
-        const ms = kind === 'today' ? todayStart() : addDays(todayStart(), 1);
+    if (kind === 'today' || kind === 'tomorrow' || kind === 'date') {
+        const tomorrow = addDays(todayStart(), 1);
+        const ms = kind === 'date' ? dateMs : (kind === 'today' ? todayStart() : tomorrow);
         const req = ++st.req;
         const pt = parseTitle(text);
-        st.temps.push({ id: 'tmp' + req, req: req, pending: true, status: 'todo', priority: '', modifiedAt: Date.now(), deadline: ms, scheduled: null, title: pt.text, links: pt.links });
+        // The list only covers dates up to tomorrow; later tasks get just the toast.
+        if (ms < bounds().end2) {
+            st.temps.push({ id: 'tmp' + req, req: req, pending: true, status: 'todo', priority: '', modifiedAt: Date.now(), deadline: ms, scheduled: null, title: pt.text, links: pt.links });
+        }
         post({ action: 'capture', kind: kind, text: text, ms: ms, req: req });
         input.value = '';
         resizeInput();
-        if (kind === 'tomorrow') st.collapsed.tomorrow = false;
+        if (ms === tomorrow) st.collapsed.tomorrow = false;
+        setPicker(null);
         render();
-        toast(kind === 'today' ? 'Added to Today' : 'Added to Tomorrow');
+        toast(ms === todayStart() ? 'Added to Today' : (ms === tomorrow ? 'Added to Tomorrow' : 'Added for ' + fmtDay(ms)));
         return;
     }
 
@@ -2159,6 +2213,91 @@ function submit(kind) {
         resizeInput();
         post({ action: 'capture', kind: kind, text: text });
     });
+}
+
+/* ======================================================== */
+/* DATE PICKER                                              */
+/* ======================================================== */
+
+function nextWeekday(from, dow) {
+    return addDays(from, ((dow - new Date(from).getDay() + 7) % 7) || 7);
+}
+
+function inAMonth(from) {
+    const d = new Date(from);
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 2, 0).getDate();
+    return new Date(d.getFullYear(), d.getMonth() + 1, Math.min(d.getDate(), lastDay)).getTime();
+}
+
+function quickDates() {
+    const s = todayStart();
+    const opts = [
+        { label: 'Today', ms: s },
+        { label: 'Tomorrow', ms: addDays(s, 1) },
+        { label: 'Friday', ms: nextWeekday(s, 5) },
+        { label: 'Weekend', ms: nextWeekday(s, 6) },
+        { label: 'Next week', ms: nextWeekday(s, 1) },
+        { label: 'In a month', ms: inAMonth(s) }
+    ];
+    const seen = {};
+    return opts.filter(o => !seen[o.ms] && (seen[o.ms] = true));
+}
+
+function calendarHtml(p) {
+    const s = todayStart();
+    const m = new Date(p.month);
+    const title = m.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+    const lead = (m.getDay() + 6) % 7;
+    const days = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+    let cells = ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(d => '<span class="cal-dw">' + d + '</span>').join('');
+    for (let i = 0; i < lead; i++) cells += '<span></span>';
+    for (let d = 1; d <= days; d++) {
+        const ms = new Date(m.getFullYear(), m.getMonth(), d).getTime();
+        const cls = ['cal-day'];
+        if (ms === s) cls.push('today');
+        if (ms === p.ms) cls.push('cur');
+        cells += '<button class="' + cls.join(' ') + '" data-ms="' + ms + '"' + (ms < s ? ' disabled' : '') + '>' + d + '</button>';
+    }
+    const atFirst = p.month <= monthStart(s);
+    return '<div class="cal"><div class="cal-head"><span>' + esc(title) + '</span><span>' +
+        '<button class="cal-nav" data-month="-1" aria-label="Previous month"' + (atFirst ? ' disabled' : '') + '>‹</button>' +
+        '<button class="cal-nav" data-month="1" aria-label="Next month">›</button>' +
+        '</span></div><div class="cal-grid">' + cells + '</div></div>';
+}
+
+function renderPicker() {
+    pickerEl.hidden = !st.picker;
+    dateBtn.classList.toggle('on', !!st.picker);
+    if (!st.picker) { pickerEl.innerHTML = ''; return; }
+    const opts = quickDates().map((o, i) =>
+        '<button class="opt' + (o.ms === st.picker.ms ? ' sel' : '') + '" data-ms="' + o.ms + '">' +
+        '<span>' + esc(o.label) + '</span><span class="hint">' + (i + 1) + ' · ' + esc(fmtDay(o.ms)) + '</span></button>'
+    ).join('');
+    pickerEl.innerHTML = '<div class="picker-opts">' + opts + '</div>' + calendarHtml(st.picker);
+}
+
+function setPicker(p) {
+    st.picker = p;
+    renderPicker();
+    renderFoot();
+    requestAnimationFrame(reportHeight);
+}
+
+function togglePicker() {
+    const ms = addDays(todayStart(), 1);
+    setPicker(st.picker ? null : { ms: ms, month: monthStart(ms) });
+    input.focus();
+}
+
+function movePickerDay(days) {
+    const ms = Math.max(todayStart(), addDays(st.picker.ms, days));
+    setPicker({ ms: ms, month: monthStart(ms) });
+}
+
+function movePickerMonth(delta) {
+    const m = new Date(st.picker.month);
+    const month = Math.max(monthStart(todayStart()), new Date(m.getFullYear(), m.getMonth() + delta, 1).getTime());
+    setPicker({ ms: st.picker.ms, month: month });
 }
 
 /* ======================================================== */
@@ -2173,6 +2312,8 @@ function resetCapture() {
     capture.style.transform = '';
     st.menu = null;
     st.sel = null;
+    st.picker = null;
+    renderPicker();
     sortMenu.open = false;
     closeSearch();
     st.lastHeight = 0;
@@ -2215,7 +2356,18 @@ input.addEventListener('blur', renderFoot);
 
 document.querySelectorAll('[data-kind]').forEach(button => {
     button.addEventListener('mousedown', e => e.preventDefault());
-    button.addEventListener('click', () => submit(button.dataset.kind));
+    button.addEventListener('click', () => {
+        if (button.dataset.kind === 'date') togglePicker(); else submit(button.dataset.kind);
+    });
+});
+
+// Keep focus (and the caret) in the input while using the picker.
+pickerEl.addEventListener('mousedown', e => e.preventDefault());
+pickerEl.addEventListener('click', e => {
+    const nav = e.target.closest('[data-month]');
+    if (nav) { movePickerMonth(Number(nav.dataset.month)); return; }
+    const day = e.target.closest('[data-ms]');
+    if (day) submit('date', Number(day.dataset.ms));
 });
 
 $('closeBtn').addEventListener('click', closePanel);
@@ -2376,6 +2528,10 @@ document.addEventListener('keydown', e => {
             sortMenu.querySelector('summary').focus({ preventScroll: true });
             return;
         }
+        if (st.picker) {
+            setPicker(null);
+            return;
+        }
         if (st.menu != null) {
             st.menu = null;
             listEl.focus({ preventScroll: true });
@@ -2400,6 +2556,14 @@ document.addEventListener('keydown', e => {
     }
 
     if (inInput) {
+        if (meta && lower === 'd') { e.preventDefault(); togglePicker(); return; }
+        if (st.picker && !meta && !e.isComposing) {
+            const quick = quickDates();
+            if (/^[1-9]$/.test(k) && Number(k) <= quick.length) { e.preventDefault(); submit('date', quick[Number(k) - 1].ms); return; }
+            const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[k];
+            if (step) { e.preventDefault(); movePickerDay(step); return; }
+            if (k === 'Enter' && !e.shiftKey) { e.preventDefault(); submit('date', st.picker.ms); return; }
+        }
         if (meta && lower === 'b') { e.preventDefault(); submit('backlog'); return; }
         if (meta && lower === 'p') { e.preventDefault(); submit('page'); return; }
         if (meta && lower === 't') { e.preventDefault(); submit(e.shiftKey ? 'tomorrow' : 'today'); return; }
