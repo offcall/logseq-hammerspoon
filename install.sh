@@ -16,18 +16,51 @@ LOAD_LINE='require("logseq_capture")'
 # Header line of the script; marks an init.lua that is a full copy of it.
 OLD_COPY_MARKER='Logseq Capture + Today panel for Hammerspoon'
 
+# --- Output ---
+
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    BOLD=$'\e[1m' DIM=$'\e[2m' RED=$'\e[31m' GREEN=$'\e[32m'
+    YELLOW=$'\e[33m' CYAN=$'\e[36m' RESET=$'\e[0m'
+else
+    BOLD="" DIM="" RED="" GREEN="" YELLOW="" CYAN="" RESET=""
+fi
+
+STEP=0
+STEPS=1
+
+section() {
+    STEP=$((STEP + 1))
+    printf '\n%s[%d/%d] %s%s\n' "$BOLD" "$STEP" "$STEPS" "$1" "$RESET"
+}
+ok()   { printf '  %s[ok]%s %s\n' "$GREEN" "$RESET" "$1"; }
+warn() { printf '  %s[!!]%s %s\n' "$YELLOW" "$RESET" "$1"; }
+bad()  { printf '  %s[no]%s %s\n' "$RED" "$RESET" "$1"; }
+note() { printf '       %s%s%s\n' "$DIM" "$1" "$RESET"; }
+em()   { printf '%s%s%s' "$BOLD" "$1" "$RESET"; }
+
+# Install step result: label column, then details.
+step() { ok "$(printf '%-12s %s%s%s' "$1" "$DIM" "$2" "$RESET")"; }
+
+tilde() {
+    if [[ "$1" == "$HOME"/* ]]; then
+        printf '~%s' "${1#"$HOME"}"
+    else
+        printf '%s' "$1"
+    fi
+}
+
 backup() {
     local backup
     backup=$(mktemp "$1.backup.XXXXXX")
     cp -p "$1" "$backup"
-    printf 'Previous %s saved to %s\n' "$(basename "$1")" "$backup"
+    step "Backup" "$(tilde "$backup")"
 }
 
 ask() {
     local answer=""
     # The prompt goes to the terminal: stdout is captured, stdin may be curl.
     if { : </dev/tty; } 2>/dev/null; then
-        read -r -p "$1" answer </dev/tty 2>/dev/tty || true
+        read -r -p "     ${CYAN}>${RESET} $1 " answer </dev/tty 2>/dev/tty || true
     fi
     printf '%s' "$answer"
 }
@@ -91,9 +124,25 @@ join_lines() {
 print_list() {
     local count
     count=$(grep -c . <<<"$1" || true)
-    awk -v max="$MAX_LISTED" 'NR <= max { printf "  %d) %s\n", NR, $0 }' <<<"$1"
+    awk -v max="$MAX_LISTED" -v c="$CYAN" -v r="$RESET" \
+        'NR <= max { printf "      %s%2d)%s %s\n", c, NR, r, $0 }' <<<"$1"
     if ((count > MAX_LISTED)); then
-        printf '  ... and %d more (type a name)\n' $((count - MAX_LISTED))
+        note "... and $((count - MAX_LISTED)) more, type a name"
+    fi
+}
+
+listed_count() {
+    local count
+    count=$(grep -c . <<<"$1" || true)
+    printf '%d' $((count < MAX_LISTED ? count : MAX_LISTED))
+}
+
+# Echoes line N of a list when the answer is a listed number, else the answer.
+pick() {
+    if [[ -n "$2" && "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1 && 10#$1 <= $(listed_count "$2"))); then
+        sed -n "$((10#$1))p" <<<"$2"
+    else
+        printf '%s' "$1"
     fi
 }
 
@@ -103,34 +152,33 @@ choose_graph() {
     local graphs answer similar
     graphs=$(json_lines "$(cli graph list)" graphs)
 
+    section "Graph"
+
     if [[ -z "$graphs" ]]; then
-        printf 'Could not list graphs with %s; the name is not checked.\n' "$CLI"
-        GRAPH=${LOGSEQ_GRAPH:-$(ask 'Logseq graph name (e.g. Personal): ')}
+        warn "Could not list graphs with $(tilde "$CLI"); the name is not checked."
+        GRAPH=${LOGSEQ_GRAPH:-$(ask 'Graph name (e.g. Personal):')}
         [[ -n "$GRAPH" ]] || fail_no_answer LOGSEQ_GRAPH '<graph>'
         GRAPH_CHECKED=""
         return
     fi
 
-    printf 'Local Logseq graphs:\n'
     print_list "$graphs"
 
     while true; do
-        answer=${LOGSEQ_GRAPH:-$(ask 'Graph (number or name, e.g. 1): ')}
+        answer=${LOGSEQ_GRAPH:-$(ask "Choose [1-$(listed_count "$graphs") or name]:")}
         [[ -n "$answer" ]] || fail_no_answer LOGSEQ_GRAPH '<graph>'
+        answer=$(pick "$answer" "$graphs")
 
-        if [[ "$answer" =~ ^[0-9]+$ ]] && ((10#$answer >= 1 && 10#$answer <= MAX_LISTED)); then
-            answer=$(sed -n "$((10#$answer))p" <<<"$graphs")
-        fi
-
-        if [[ -n "$answer" ]] && grep -qxF -- "$answer" <<<"$graphs"; then
+        if grep -qxF -- "$answer" <<<"$graphs"; then
             GRAPH=$answer
             GRAPH_CHECKED=1
+            ok "Graph $(em "$GRAPH")"
             return
         fi
 
-        printf 'No graph "%s".\n' "$answer"
+        bad "No graph $(em "$answer")"
         similar=$(grep -iF -- "$answer" <<<"$graphs" | head -n 5 || true)
-        [[ -z "$similar" ]] || printf 'Similar: %s\n' "$(join_lines "$similar")"
+        [[ -z "$similar" ]] || note "Did you mean: $(join_lines "$similar")"
         [[ -z "${LOGSEQ_GRAPH:-}" ]] || exit 1
     done
 }
@@ -139,58 +187,79 @@ choose_graph() {
 choose_dashboard() {
     local answer hints found similar result
 
+    section "Dashboard button"
+    note "The page that the panel's top-right button opens."
+
+    hints=""
     if [[ -n "$GRAPH_CHECKED" ]]; then
         hints=$(page_titles "$HINT_QUERY" | head -n 5 || true)
-        [[ -z "$hints" ]] || printf 'Pages that may fit: %s\n' "$(join_lines "$hints")"
+        [[ -z "$hints" ]] || print_list "$hints"
     fi
 
     while true; do
         if [[ -n "${LOGSEQ_DASHBOARD+set}" ]]; then
             answer=$LOGSEQ_DASHBOARD
         else
-            answer=$(ask 'Page for the panel'\''s top-right button (e.g. Dashboard; empty = no button): ')
+            if [[ -n "$hints" ]]; then
+                answer=$(ask "Choose [1-$(listed_count "$hints"), page name, or empty for no button]:")
+            else
+                answer=$(ask 'Page name (e.g. Dashboard; empty for no button):')
+            fi
+        fi
+        answer=$(pick "$answer" "$hints")
+
+        if [[ -z "$answer" ]]; then
+            DASHBOARD=""
+            ok "No dashboard button"
+            return
         fi
 
-        if [[ -z "$answer" || -z "$GRAPH_CHECKED" ]]; then
+        if [[ -z "$GRAPH_CHECKED" ]]; then
             DASHBOARD=$answer
+            ok "Button opens $(em "$DASHBOARD") (not checked)"
             return
         fi
 
         result=$(cli --graph "$GRAPH" --timeout-ms 45000 query --query "$PAGE_QUERY" \
             --inputs "[$(lua_string "$(lower "$answer")")]")
         if ! query_ok "$result"; then
-            printf 'Could not check pages; saving "%s" unchecked.\n' "$answer"
             DASHBOARD=$answer
+            warn "Could not check pages; saved \"$DASHBOARD\" unchecked"
             return
         fi
 
         found=$(json_lines "$result" titles | head -n 1 || true)
         if [[ -n "$found" ]]; then
             DASHBOARD=$found
+            ok "Button opens $(em "$DASHBOARD")"
             return
         fi
 
-        printf 'No page "%s" in graph "%s".\n' "$answer" "$GRAPH"
+        bad "No page $(em "$answer") in graph $(em "$GRAPH")"
         similar=$(page_titles "$SIMILAR_QUERY" "[$(lua_string "$(lower "$answer")")]" | head -n 5 || true)
-        [[ -z "$similar" ]] || printf 'Similar: %s\n' "$(join_lines "$similar")"
+        [[ -z "$similar" ]] || note "Did you mean: $(join_lines "$similar")"
         [[ -z "${LOGSEQ_DASHBOARD+set}" ]] || exit 1
     done
 }
 
 fail_no_answer() {
-    printf 'No answer. Re-run with %s="%s".\n' "$1" "$2" >&2
+    bad "No answer. Re-run with $1=\"$2\"" >&2
     exit 1
 }
 
 # Wrapped in main so a partial download (curl | bash) never runs.
 main() {
     mkdir -p "$CONFIG_DIR"
+    printf '%slogseq-hammerspoon installer%s\n' "$BOLD" "$RESET"
+    printf '%s============================%s\n' "$DIM" "$RESET"
+    [[ -e "$USER_CONFIG" ]] || STEPS=3
+    CONFIG_STATUS="kept $(tilde "$USER_CONFIG")"
 
     # 1. User config: created once, kept on updates.
     if [[ ! -e "$USER_CONFIG" ]]; then
         find_cli
         if [[ ! -x "$CLI" ]]; then
-            printf 'Logseq CLI not found; using %s (edit %s if wrong).\n' "$CLI" "$USER_CONFIG"
+            warn "Not found; using $(tilde "$CLI"), edit $(tilde "$USER_CONFIG") if wrong."
         fi
         choose_graph
         choose_dashboard
@@ -210,8 +279,11 @@ return {
     -- openHotkey = { {"cmd", "alt"}, "L" },
 }
 EOF
-        printf 'Created %s\n' "$USER_CONFIG"
+        CONFIG_STATUS="created $(tilde "$USER_CONFIG")"
     fi
+
+    section "Install"
+    step "Config" "$CONFIG_STATUS"
 
     # 2. Script: copy from a clone, otherwise download.
     SOURCE_DIR=""
@@ -225,20 +297,22 @@ EOF
         curl -fsSL "$RAW_URL/logseq_capture.lua" -o "$SCRIPT.tmp"
     fi
     mv "$SCRIPT.tmp" "$SCRIPT"
-    printf 'Installed %s\n' "$SCRIPT"
+    step "Script" "$(tilde "$SCRIPT")"
 
     # 3. init.lua loads the script.
     if [[ -e "$INIT" ]] && grep -qF "$OLD_COPY_MARKER" "$INIT"; then
         backup "$INIT"
         printf '%s\n' "$LOAD_LINE" >"$INIT"
-        printf 'Replaced the old full copy in %s with: %s\n' "$INIT" "$LOAD_LINE"
+        step "init.lua" "old full copy replaced with $LOAD_LINE"
     elif [[ ! -e "$INIT" ]] || ! grep -qF "$LOAD_LINE" "$INIT"; then
         if [[ -e "$INIT" ]]; then
             backup "$INIT"
             printf '\n' >>"$INIT"
         fi
         printf '%s\n' "$LOAD_LINE" >>"$INIT"
-        printf 'Added to %s: %s\n' "$INIT" "$LOAD_LINE"
+        step "init.lua" "added $LOAD_LINE"
+    else
+        step "init.lua" "already loads the script"
     fi
 
     # 4. Restart Hammerspoon.
@@ -257,7 +331,9 @@ end if
 APPLESCRIPT
 
     open -a Hammerspoon
-    printf 'Hammerspoon started with the updated config.\n'
+    step "Hammerspoon" "restarted"
+
+    printf '\n%sDone.%s Push the mouse into the bottom-right corner of the screen.\n' "$BOLD" "$RESET"
 }
 
 main "$@"
