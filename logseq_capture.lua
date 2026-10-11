@@ -15,6 +15,7 @@
 --   s            → start / pause          t        → tomorrow (← today)
 --   d            → reschedule menu (1–5 pick, 6 = date)
 --   b            → backlog (clears dates) ↩ / o    → open in Logseq
+--   double-click a row (not its buttons) → open that block in Logseq
 --   ⌘Z           → undo last action       ⌘R       → refresh
 --   / or n       → back to the input      Esc      → close menu / panel
 --
@@ -1775,7 +1776,7 @@ function rowFor(t, sec) {
     let html =
         '<div class="' + cls.join(' ') + '" data-id="' + esc(id) + '">' +
         '<button class="circ" data-act="' + circleAct + '" title="' + circleLabel + '" aria-label="' + circleLabel + '">' + circleFor(t, sec) + '</button>' +
-        '<div class="body" data-act="select"><div class="ttl">' + esc(t.title) + '</div>' + chipsFor(t, sec) + '</div>' +
+        '<div class="body" data-act="select" title="Double-click to open in Logseq"><div class="ttl">' + esc(t.title) + '</div>' + chipsFor(t, sec) + '</div>' +
         actsFor(t, sec) +
         '</div>';
     if (st.menu === id && sec !== 'done' && !t.pending) html += menuFor(t);
@@ -2061,11 +2062,22 @@ function openTask(id) {
     if (t && t.uuid) post({ action: 'openBlock', uuid: t.uuid });
 }
 
+// Selection only toggles a class. Rebuilding the list here would replace the
+// row mid-gesture, so the second click never becomes a dblclick.
+function paintSelection() {
+    listEl.querySelectorAll('.row.sel').forEach(el => el.classList.remove('sel'));
+    if (st.sel != null) {
+        const el = listEl.querySelector('.row[data-id="' + cssEsc(st.sel) + '"]');
+        if (el) el.classList.add('sel');
+    }
+    renderFoot();
+}
+
 function select(id) {
     st.sel = id == null ? null : String(id);
     if (document.activeElement === input) input.blur();
     listEl.focus({ preventScroll: true });
-    render();
+    paintSelection();
 }
 
 function focusInput() {
