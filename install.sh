@@ -25,7 +25,10 @@ backup() {
 
 ask() {
     local answer=""
-    { read -r -p "$1" answer </dev/tty; } 2>/dev/null || true
+    # The prompt goes to the terminal: stdout is captured, stdin may be curl.
+    if { : </dev/tty; } 2>/dev/null; then
+        read -r -p "$1" answer </dev/tty 2>/dev/tty || true
+    fi
     printf '%s' "$answer"
 }
 
