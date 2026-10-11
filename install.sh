@@ -7,9 +7,12 @@
 # answer the first-run questions without a prompt.
 set -euo pipefail
 
-RAW_URL="https://raw.githubusercontent.com/offcall/logseq-hammerspoon/main"
+TARBALL_URL="https://codeload.github.com/offcall/logseq-hammerspoon/tar.gz/main"
+TARBALL_ROOT="logseq-hammerspoon-main"
 CONFIG_DIR="$HOME/.hammerspoon"
-SCRIPT="$CONFIG_DIR/logseq_capture.lua"
+MODULE_DIR="$CONFIG_DIR/logseq_capture"
+# Single-file script of older versions; require() would pick it over the directory.
+OLD_SCRIPT="$CONFIG_DIR/logseq_capture.lua"
 USER_CONFIG="$CONFIG_DIR/logseq_capture_config.lua"
 INIT="$CONFIG_DIR/init.lua"
 LOAD_LINE='require("logseq_capture")'
@@ -285,19 +288,32 @@ EOF
     section "Install"
     step "Config" "$CONFIG_STATUS"
 
-    # 2. Script: copy from a clone, otherwise download.
+    # 2. Script directory: copy from a clone, otherwise download the tarball.
+    #    Staged next to the target, then swapped in.
     SOURCE_DIR=""
     if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
         SOURCE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
     fi
 
-    if [[ -n "$SOURCE_DIR" && -f "$SOURCE_DIR/logseq_capture.lua" ]]; then
-        cp "$SOURCE_DIR/logseq_capture.lua" "$SCRIPT.tmp"
+    STAGE=$(mktemp -d "$CONFIG_DIR/.logseq_capture.XXXXXX")
+    trap 'rm -rf "$STAGE"' EXIT
+    if [[ -n "$SOURCE_DIR" && -f "$SOURCE_DIR/logseq_capture/init.lua" ]]; then
+        cp -R "$SOURCE_DIR/logseq_capture" "$STAGE/"
     else
-        curl -fsSL "$RAW_URL/logseq_capture.lua" -o "$SCRIPT.tmp"
+        curl -fsSL "$TARBALL_URL" |
+            tar -xzf - -C "$STAGE" --strip-components=1 "$TARBALL_ROOT/logseq_capture"
     fi
-    mv "$SCRIPT.tmp" "$SCRIPT"
-    step "Script" "$(tilde "$SCRIPT")"
+    if [[ ! -f "$STAGE/logseq_capture/init.lua" ]]; then
+        bad "Download has no logseq_capture/init.lua; nothing changed."
+        exit 1
+    fi
+    rm -rf "$MODULE_DIR"
+    mv "$STAGE/logseq_capture" "$MODULE_DIR"
+    step "Script" "$(tilde "$MODULE_DIR")/"
+    if [[ -e "$OLD_SCRIPT" ]]; then
+        rm -f "$OLD_SCRIPT"
+        step "Old script" "removed $(tilde "$OLD_SCRIPT")"
+    fi
 
     # 3. init.lua loads the script.
     if [[ -e "$INIT" ]] && grep -qF "$OLD_COPY_MARKER" "$INIT"; then

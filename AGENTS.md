@@ -6,8 +6,8 @@ architectural decisions.
 ## Project
 
 Control Logseq from macOS with [Hammerspoon](https://www.hammerspoon.org/). The main
-artifact is a single Lua script, `logseq_capture.lua`, with a "Capture + Today" panel
-in the bottom-right corner of the screen.
+artifact is the Lua package `logseq_capture/` (ADR 0007), with a "Capture + Today"
+panel in the bottom-right corner of the screen.
 
 The project grows by small, useful features on top of the official Logseq CLI, not
 by rewrites. Agents implement one requested task at a time and keep the script
@@ -17,7 +17,7 @@ working after every change.
 
 - Hammerspoon. Installation and the Hammerspoon config are managed by the user:
   do not edit `~/.hammerspoon/`, reload Hammerspoon, or send it commands. Work only on
-  `logseq_capture.lua` in this repository.
+  `logseq_capture/` and `install.sh` in this repository.
 - Logseq (DB version). Graph, dashboard page, CLI path, and open hotkey come from
   `~/.hammerspoon/logseq_capture_config.lua`, created by `install.sh`; defaults
   are at the top of the script (ADR 0006).
