@@ -44,6 +44,20 @@ return {
 
 Reload Hammerspoon after editing.
 
+### Which tasks the panel shows
+
+Open the settings screen with the gear in the panel header (or `⌘,`):
+
+- **Statuses**: pick the open statuses of your graph and whether a `#Task`
+  without a status counts as Todo. Doing tasks show without a date; others
+  need a deadline or scheduled date.
+- **Custom query**: your own datalog query. Keep the pull pattern and
+  `:in $ ?until` of the default query; switching to this mode fills it in.
+
+**Test** (`⌘↩`) runs the query and shows the task count and the first titles;
+**Save** (`⌘S`) is enabled after a passing test. The choice is stored per graph
+in Hammerspoon settings, not in the config file.
+
 ## Shortcuts
 
 | Where | Keys |

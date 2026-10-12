@@ -29,7 +29,8 @@ working after every change.
 
 Lua package `logseq_capture/` (ADR 0007). `init.lua` only wires modules and starts
 timers; each module has one responsibility (`config`, `state`, `util`, `bridge`,
-`cli`, `queue`, `done`, `tasks`, `actions`, `peek`, `panel`, `corner`, `assets`).
+`cli`, `queue`, `done`, `tasks`, `filter`, `settings`, `actions`, `peek`, `panel`,
+`corner`, `assets`).
 Modules do not `require` each other in cycles: `init.lua` passes callbacks
 (`queue.onData`, `peek.create(onExpand)`). The web UI lives in
 `logseq_capture/web/` as plain `.html` / `.css` / `.js`; `assets.page()` inlines
@@ -56,7 +57,8 @@ the `<link rel="stylesheet">` and `<script src>` files into one HTML string at l
   No direct edits of graph files, no HTTP API.
 - Calls are async (`hs.task`) and strictly sequential: queue `S.queue` + `pump()`.
   Timeout `CLI_TIMEOUT` (the first call may start the db-worker).
-- Refresh is one datalog query, `TASKS_QUERY`. Its input `?end2` is the start of the
+- Refresh is one datalog query, built by `filter.lua` from the task filter saved
+  per graph on the panel's settings screen (ADR 0008). Its input `?end2` is the start of the
   day after tomorrow (local time, epoch ms). A refresh result is dropped if writes
   were queued meanwhile, so optimistic UI is never overwritten by stale data.
 - Commands in use: `query`; `upsert task` (`--uuid` / `--id`, `--status`,

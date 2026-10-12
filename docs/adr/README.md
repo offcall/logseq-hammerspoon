@@ -11,3 +11,4 @@ gets a new ADR that supersedes the old one.
 | [0005](0005-two-week-calendar-view.md) | Two-week calendar view in the panel | Accepted |
 | [0006](0006-install-as-module-with-user-config.md) | Install as a module with a separate user config | Accepted; install part superseded by 0007 |
 | [0007](0007-split-script-into-module-directory.md) | Split the script into a module directory | Accepted |
+| [0008](0008-task-filter-settings-screen.md) | Task filter on a settings screen | Accepted |
