@@ -49,7 +49,8 @@ const st = {
     req: 0,
     order: [],
     secOf: {},
-    toastTimer: 0
+    toastTimer: 0,
+    set: null
 };
 
 function post(message) {
@@ -475,7 +476,9 @@ function cssEsc(s) {
 function renderFoot() {
     const h = (k, label) => '<span class="h"><span class="key">' + k + '</span>' + label + '</span>';
     let html;
-    if (st.picker) {
+    if (st.set) {
+        html = h('⌘↩', 'test') + h('⌘S', 'save') + h('esc', 'back');
+    } else if (st.picker) {
         html = h('1–6', 'quick') + h('←→↑↓', 'day') + h('↩', 'create') + h('esc', 'back to text');
     } else if (document.activeElement === input) {
         html = h('↩', 'note') + h('⌘T', 'today') + h('⌘⇧T', 'tmrw') + h('⌘B', 'backlog') + h('⌘P', 'page') + h('↓', 'tasks');
@@ -497,7 +500,9 @@ function renderFoot() {
 
 function reportHeight() {
     const rect = capture.getBoundingClientRect();
-    const natural = Math.ceil(rect.height - listEl.clientHeight + listEl.scrollHeight + 16);
+    // In settings the list is hidden and the settings body may overflow instead.
+    const overflow = st.set ? setBody.scrollHeight - setBody.clientHeight : 0;
+    const natural = Math.ceil(rect.height - listEl.clientHeight + listEl.scrollHeight + overflow + 16);
     if (Math.abs(natural - st.lastHeight) >= 1) {
         st.lastHeight = natural;
         post({ action: 'resize', height: natural });
@@ -855,6 +860,8 @@ function resetCapture() {
     capture.classList.remove('closing');
     capture.style.opacity = '';
     capture.style.transform = '';
+    st.set = null;
+    capture.classList.remove('in-settings');
     st.menu = null;
     st.sel = null;
     st.calDay = null;
@@ -1053,6 +1060,9 @@ function moveSel(delta) {
 document.addEventListener('keydown', e => {
     if (st.closing) return;
 
+    if (st.set) { onSettingsKey(e); return; }
+    if (e.metaKey && e.key === ',') { e.preventDefault(); openSettings(); return; }
+
     const k = e.key;
     const lower = k.length === 1 ? k.toLowerCase() : k;
     const inInput = e.target === input;
@@ -1199,6 +1209,185 @@ document.addEventListener('keydown', e => {
 });
 
 /* ======================================================== */
+/* SETTINGS: which tasks the panel shows (filter.lua)       */
+/* ======================================================== */
+
+const settingsEl = $('settings');
+const setBody = $('setBody');
+const setRes = $('setRes');
+const setMode = $('setMode');
+const setTestBtn = $('setTest');
+const setSaveBtn = $('setSave');
+
+const arr = v => (Array.isArray(v) ? v : []);
+
+function readFilter(f) {
+    f = f || {};
+    return {
+        mode: f.mode === 'custom' ? 'custom' : 'statuses',
+        statuses: arr(f.statuses).map(String),
+        noStatusAsTodo: f.noStatusAsTodo !== false,
+        query: typeof f.query === 'string' ? f.query : ''
+    };
+}
+
+// Save needs a passing test of exactly this filter.
+function filterSig(f) {
+    return JSON.stringify(f.mode === 'custom'
+        ? { mode: 'custom', query: f.query }
+        : { mode: 'statuses', statuses: f.statuses.slice().sort(), noStatusAsTodo: f.noStatusAsTodo });
+}
+
+function openSettings() {
+    st.menu = null;
+    setPicker(null);
+    sortMenu.open = false;
+    st.set = { filter: null, graph: '', statuses: null, statusError: null, req: 0, testing: false, testSig: null, okSig: null, test: null };
+    capture.classList.add('in-settings');
+    renderSettings();
+    settingsEl.focus({ preventScroll: true });
+    post({ action: 'settingsOpen' });
+}
+
+function closeSettings() {
+    if (!st.set) return;
+    st.set = null;
+    capture.classList.remove('in-settings');
+    focusInput();
+}
+
+function statusRows() {
+    const s = st.set;
+    const f = s.filter;
+    if (!s.statuses && !s.statusError) return '<div class="set-opt off">Loading statuses…</div>';
+    const items = arr(s.statuses).slice();
+    f.statuses.forEach(id => {
+        if (!items.some(it => it.ident === id)) items.push({ ident: id, title: identTail(id) });
+    });
+    let html = s.statusError ? '<div class="set-opt off">Couldn’t load statuses: ' + esc(s.statusError) + '</div>' : '';
+    html += items.map(it =>
+        '<label class="set-opt' + (it.closed ? ' off' : '') + '">' +
+        '<input type="checkbox" data-status="' + esc(it.ident) + '"' +
+        (f.statuses.indexOf(it.ident) >= 0 ? ' checked' : '') + (it.closed ? ' disabled' : '') + '>' +
+        esc(it.title) + '<span class="sub">' + (it.closed ? 'closed · not shown' : esc(identTail(it.ident))) + '</span></label>'
+    ).join('');
+    return html;
+}
+
+function renderSettings() {
+    const s = st.set;
+    if (!s) return;
+    const f = s.filter;
+    setMode.querySelectorAll('button').forEach(b => b.classList.toggle('on', !!f && b.dataset.mode === f.mode));
+    if (!f) {
+        setBody.innerHTML = '<div class="empty">Loading settings…</div>';
+    } else if (f.mode === 'custom') {
+        setBody.innerHTML = '<h4>Datalog · input ?until (epoch ms)</h4>' +
+            '<textarea class="set-query" id="setQuery" spellcheck="false"></textarea>' +
+            '<p class="set-note">Keep the pull pattern and <code>:in $ ?until</code> of the default query.</p>';
+        $('setQuery').value = f.query;
+    } else {
+        setBody.innerHTML = '<h4>Open statuses' + (s.graph ? ' · graph “' + esc(s.graph) + '”' : '') + '</h4>' +
+            '<div class="set-box">' + statusRows() + '</div>' +
+            '<div class="set-box"><label class="set-opt"><input type="checkbox" data-nostatus' +
+            (f.noStatusAsTodo ? ' checked' : '') + '>#Task without a status counts as Todo</label></div>' +
+            '<p class="set-note">Doing tasks show without a date; others need a deadline or scheduled date.</p>';
+    }
+    renderSettingsResult();
+}
+
+function renderSettingsResult() {
+    const s = st.set;
+    if (!s) return;
+    const r = s.test;
+    if (s.testing) {
+        setRes.className = 'set-res';
+        setRes.textContent = 'Testing…';
+    } else if (!r) {
+        setRes.className = 'set-res';
+        setRes.innerHTML = '';
+    } else if (r.ok) {
+        setRes.className = 'set-res ok';
+        setRes.innerHTML = '<div class="h">✓ ' + r.count + (r.count === 1 ? ' task' : ' tasks') +
+            ' · ' + (Number(r.seconds) || 0).toFixed(1) + ' s</div>' +
+            (r.sample.length ? '<ul>' + r.sample.map(p => '<li>' + esc(parseTitle(p.title, p.refs).text) + '</li>').join('') + '</ul>' : '');
+    } else {
+        setRes.className = 'set-res err';
+        setRes.innerHTML = '<div class="h">✕ Test failed</div><code>' + esc(r.message || 'unknown error') + '</code>';
+    }
+    setTestBtn.disabled = !s.filter || s.testing;
+    setSaveBtn.disabled = !s.filter || s.testing || s.okSig !== filterSig(s.filter);
+    renderFoot();
+    requestAnimationFrame(reportHeight);
+}
+
+function filterChanged() {
+    st.set.test = null;
+    renderSettingsResult();
+}
+
+function testSettings() {
+    const s = st.set;
+    if (!s || !s.filter || s.testing) return;
+    s.req += 1;
+    s.testing = true;
+    s.test = null;
+    s.testSig = filterSig(s.filter);
+    renderSettingsResult();
+    post({ action: 'settingsTest', req: s.req, filter: s.filter });
+}
+
+function saveSettings() {
+    if (!st.set || setSaveBtn.disabled) return;
+    post({ action: 'settingsSave', filter: st.set.filter });
+}
+
+function onSettingsKey(e) {
+    const lower = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (e.key === 'Escape' || (e.metaKey && e.key === ',')) { e.preventDefault(); closeSettings(); return; }
+    if (e.metaKey && e.key === 'Enter') { e.preventDefault(); testSettings(); return; }
+    if (e.metaKey && lower === 's') { e.preventDefault(); saveSettings(); }
+}
+
+$('settingsBtn').addEventListener('click', openSettings);
+$('settingsBack').addEventListener('click', closeSettings);
+$('settingsClose').addEventListener('click', closePanel);
+setTestBtn.addEventListener('click', testSettings);
+setSaveBtn.addEventListener('click', saveSettings);
+$('setReset').addEventListener('click', () => { if (st.set) post({ action: 'settingsReset' }); });
+
+setMode.addEventListener('click', e => {
+    const b = e.target.closest('button[data-mode]');
+    const s = st.set;
+    if (!b || !s || !s.filter || s.filter.mode === b.dataset.mode) return;
+    s.filter.mode = b.dataset.mode;
+    s.test = null;
+    renderSettings();
+    if (s.filter.mode === 'custom' && !s.filter.query.trim()) post({ action: 'settingsBuild', filter: s.filter });
+});
+
+setBody.addEventListener('change', e => {
+    const s = st.set;
+    const t = e.target;
+    if (!s || !s.filter) return;
+    if (t.dataset.status != null) {
+        s.filter.statuses = s.filter.statuses.filter(id => id !== t.dataset.status);
+        if (t.checked) s.filter.statuses.push(t.dataset.status);
+    } else if (t.hasAttribute('data-nostatus')) {
+        s.filter.noStatusAsTodo = t.checked;
+    } else {
+        return;
+    }
+    filterChanged();
+});
+
+setBody.addEventListener('input', e => {
+    if (e.target.id !== 'setQuery' || !st.set || !st.set.filter) return;
+    st.set.filter.query = e.target.value;
+    filterChanged();
+});
+
+/* ======================================================== */
 /* API FOR LUA                                              */
 /* ======================================================== */
 
@@ -1243,6 +1432,49 @@ window.app = {
         st.temps = st.temps.filter(t => t.req !== info.req);
         render();
         toast('Logseq: ' + (info.message || 'error'), { error: true, retry: true });
+    },
+    settingsLoaded(info) {
+        const s = st.set;
+        if (!s) return;
+        s.filter = readFilter(info && info.filter);
+        s.graph = (info && info.graph) || '';
+        s.test = null;
+        s.okSig = null;
+        renderSettings();
+        if (s.filter.mode === 'custom' && !s.filter.query.trim()) post({ action: 'settingsBuild', filter: s.filter });
+        if (info && info.reset) toast('Reset to default');
+    },
+    settingsStatuses(info) {
+        const s = st.set;
+        if (!s) return;
+        if (info && info.ok) {
+            s.statuses = arr(info.items);
+            s.statusError = null;
+        } else {
+            s.statusError = (info && info.message) || 'unknown error';
+        }
+        if (s.filter && s.filter.mode === 'statuses') renderSettings();
+    },
+    settingsBuilt(info) {
+        const s = st.set;
+        if (!s || !s.filter || s.filter.mode !== 'custom' || s.filter.query.trim()) return;
+        s.filter.query = (info && info.query) || '';
+        const q = $('setQuery');
+        if (q) q.value = s.filter.query;
+    },
+    settingsTested(info) {
+        const s = st.set;
+        if (!s || !info || info.req !== s.req) return;
+        s.testing = false;
+        s.test = { ok: !!info.ok, count: info.count || 0, sample: arr(info.sample), seconds: info.seconds, message: info.message };
+        s.okSig = info.ok && s.testSig === filterSig(s.filter) ? s.testSig : null;
+        if (s.okSig == null && info.ok) s.test = null;
+        renderSettingsResult();
+    },
+    settingsSaved() {
+        if (!st.set) return;
+        closeSettings();
+        toast('Settings saved');
     },
     reset: resetCapture
 };

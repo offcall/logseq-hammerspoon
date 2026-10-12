@@ -12,6 +12,7 @@ local queue = require("logseq_capture.queue")
 local actions = require("logseq_capture.actions")
 local peek = require("logseq_capture.peek")
 local assets = require("logseq_capture.assets")
+local settings = require("logseq_capture.settings")
 
 local DASHBOARD_PAGE = config.DASHBOARD_PAGE
 local WIDTH = config.WIDTH
@@ -197,6 +198,9 @@ local function onPanelMessage(message)
     elseif action == "openPage" and DASHBOARD_PAGE then
         M.hide()
         actions.openLogseqUrl("page=" .. urlEncode(DASHBOARD_PAGE))
+
+    else
+        settings.handle(body)
     end
 end
 

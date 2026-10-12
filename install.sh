@@ -350,6 +350,7 @@ APPLESCRIPT
     step "Hammerspoon" "restarted"
 
     printf '\n%sDone.%s Push the mouse into the bottom-right corner of the screen.\n' "$BOLD" "$RESET"
+    note "Which tasks the panel shows: the gear in its header (Cmd+,)."
 }
 
 main "$@"

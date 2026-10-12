@@ -8,6 +8,7 @@ local S = require("logseq_capture.state")
 local util = require("logseq_capture.util")
 local cli = require("logseq_capture.cli")
 local bridge = require("logseq_capture.bridge")
+local filter = require("logseq_capture.filter")
 
 local log = util.log
 local fmtInt = util.fmtInt
@@ -20,50 +21,18 @@ local M = {}
 M.onData = function() end
 
 
--- Every dated task before ?until + every Doing task, in ONE query.
--- ?until = end of the calendar grid: Monday of the week after next
--- (local time, epoch ms). The list mode filters to tomorrow in JS.
-local TASKS_QUERY = [=[
-[:find (pull ?task [:db/id
-                    :block/uuid
-                    :block/title
-                    :block/updated-at
-                    :logseq.property/deadline
-                    :logseq.property/scheduled
-                    {:logseq.property/status [:db/ident]}
-                    {:logseq.property/priority [:db/ident]}
-                    {:block/refs [:block/uuid :block/title]}])
- :in $ ?until
- :where
- (or-join [?task]
-   (and
-     [?task :logseq.property/status ?status]
-     [?status :db/ident ?status-id]
-     [(contains?
-       #{:logseq.property/status.todo
-         :logseq.property/status.backlog
-         :logseq.property/status.doing
-         :logseq.property/status.in-review}
-       ?status-id)])
-   ;; a #Task without a status counts as todo
-   (and
-     [?task-class :db/ident :logseq.class/Task]
-     [?task :block/tags ?task-class]
-     (not [?task :logseq.property/status])))
- (or-join [?task ?until]
-   (and
-     [?task :logseq.property/status ?doing]
-     [?doing :db/ident :logseq.property/status.doing])
-   (and
-     [?task :logseq.property/deadline ?date]
-     [(< ?date ?until)])
-   (and
-     [?task :logseq.property/scheduled ?date]
-     [(< ?date ?until)]))]
-]=]
-
-
 local pump
+
+
+local function hasWrites()
+    for _, job in ipairs(S.queue) do
+        if job.kind == "write" then
+            return true
+        end
+    end
+
+    return false
+end
 
 
 local function enqueue(job)
@@ -78,24 +47,36 @@ function M.requestRefresh()
 end
 
 
+-- ?until of the tasks query: end of the calendar grid,
+-- Monday of this week + 14 days (os.date wday: 1 = Sunday).
+function M.untilMs()
+    return dayStartMs(14 - (os.date("*t").wday + 5) % 7)
+end
+
+
+-- CLI args of the tasks query (saved filter unless one is given).
+function M.tasksQueryArgs(query, untilMs)
+    return {
+        "query",
+        "--query", query or filter.current(),
+        "--inputs", "[" .. fmtInt(untilMs) .. "]",
+    }
+end
+
+
 local function makeRefreshJob()
     local start = dayStartMs(0)
     local finish = dayStartMs(1)
     local finish2 = dayStartMs(2)
-    -- Monday of this week + 14 days (os.date wday: 1 = Sunday).
-    local untilMs = dayStartMs(14 - (os.date("*t").wday + 5) % 7)
+    local untilMs = M.untilMs()
 
     return {
         kind = "refresh",
-        args = {
-            "query",
-            "--query", TASKS_QUERY,
-            "--inputs", "[" .. fmtInt(untilMs) .. "]",
-        },
+        args = M.tasksQueryArgs(nil, untilMs),
         cb = function(ok, raw, decoded, message)
             jsPanel("app.setLoading(false)")
 
-            if #S.queue > 0 then
+            if hasWrites() then
                 -- writes arrived meanwhile → this snapshot is stale
                 S.refreshWanted = true
                 return
@@ -152,6 +133,16 @@ pump = function()
         -- let the UI breathe between commands
         hs.timer.doAfter(0, pump)
     end)
+end
+
+
+-- A query that only reads: no refresh afterwards.
+function M.enqueueRead(args, onDone)
+    enqueue({
+        kind = "read",
+        args = args,
+        cb = onDone,
+    })
 end
 
 

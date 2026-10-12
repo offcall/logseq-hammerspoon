@@ -22,6 +22,11 @@
 --   c            → toggle List / Calendar (2-week grid, ←→ day, ⇧←→ week)
 --   / or n       → back to the input      Esc      → close menu / panel
 --
+-- SETTINGS (⌘, or the gear in the header): which tasks the panel shows
+--   statuses or a custom datalog query
+--   ⌘↩           → test                   ⌘S       → save (after a passing test)
+--   Esc          → back to the task list
+--
 -- PEEK: a small pill bottom-right with your current "Doing" tasks, one row
 -- each, with elapsed time since the task was last started through this panel.
 -- slides right on hover to reveal the screen underneath.
@@ -35,6 +40,7 @@
 --   util     helpers                      bridge   Lua → JS calls
 --   cli      Logseq CLI runner            queue    sequential CLI queue + refresh
 --   done     "Done today" list            tasks    rows of the last refresh
+--   filter   tasks query + saved filter   settings settings screen messages
 --   actions  task updates / captures      peek     Doing pill
 --   panel    capture + task list          corner   hot corner
 --   assets   web/ files → one HTML string
