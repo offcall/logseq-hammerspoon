@@ -44,19 +44,20 @@ return {
 
 Reload Hammerspoon after editing.
 
-### Which tasks the panel shows
+### Which tasks show
 
-Open the settings screen with the gear in the panel header (or `⌘,`):
+![Settings screen: statuses and test result](docs/settings.webp)
 
-- **Statuses**: pick the open statuses of your graph and whether a `#Task`
-  without a status counts as Todo. Doing tasks show without a date; others
-  need a deadline or scheduled date.
-- **Custom query**: your own datalog query. Keep the pull pattern and
-  `:in $ ?until` of the default query; switching to this mode fills it in.
+Gear in panel header, or `⌘,`.
 
-**Test** (`⌘↩`) runs the query and shows the task count and the first titles;
-**Save** (`⌘S`) is enabled after a passing test. The choice is stored per graph
-in Hammerspoon settings, not in the config file.
+- **Statuses**: tick open statuses of your graph. Toggle: `#Task` without status
+  counts as Todo. Doing needs no date; others need deadline or scheduled date.
+- **Custom query**: own datalog query, prefilled from statuses. Keep the pull
+  pattern and `:in $ ?until`.
+
+**Test** (`⌘↩`): task count + first titles, or the error. **Save** (`⌘S`): only
+after a passing test. Stored per graph in Hammerspoon settings, not in the config
+file.
 
 ## Shortcuts
 
@@ -65,6 +66,7 @@ in Hammerspoon settings, not in the config file.
 | Capture | `↩` note · `⇧↩` newline · `⌘T` today · `⌘⇧T` tomorrow · `⌘D` date · `⌘B` backlog · `⌘P` page · `↓` list |
 | List | `↑↓` / `j k` move · `Space` done · `s` start/pause · `t` tomorrow · `d` reschedule · `b` backlog · `↩` open |
 | Anywhere | `⌘Z` undo · `⌘R` refresh · `⌘F` search · `c` calendar · `/` input · `Esc` close |
+| Settings | `⌘,` open · `⌘↩` test · `⌘S` save · `Esc` back |
 
 ## How it works
 
