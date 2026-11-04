@@ -152,7 +152,20 @@ function parseTitle(raw, refs) {
     return { text: text, links: parsed };
 }
 
-function normTask(p) {
+// One value of the label property: a node ({block/title}) or text.
+function labelTitle(v) {
+    if (v && typeof v === 'object') v = g(v, 'block/title');
+    return v == null ? '' : String(v).trim();
+}
+
+// Same label → same colour.
+function labelHue(label) {
+    let h = 0;
+    for (let i = 0; i < label.length; i++) h = (h * 31 + label.charCodeAt(i)) % 360;
+    return h;
+}
+
+function normTask(p, labelKey) {
     const t = {
         id: g(p, 'db/id'),
         uuid: g(p, 'block/uuid') ? String(g(p, 'block/uuid')) : '',
@@ -165,6 +178,10 @@ function normTask(p) {
     const pt = parseTitle(g(p, 'block/title'), g(p, 'block/refs'));
     t.title = pt.text;
     t.links = pt.links;
+    const lv = labelKey ? g(p, labelKey) : null;
+    const labels = (Array.isArray(lv) ? lv : [lv]).map(labelTitle).filter(Boolean);
+    t.label = labels.length ? labels[0] + (labels.length > 1 ? ' +' + (labels.length - 1) : '') : '';
+    t.labelHue = labels.length ? labelHue(labels[0]) : 0;
     return t;
 }
 
@@ -222,10 +239,10 @@ function openOn(ms) {
     return st.tasks.concat(st.temps).filter(t => t.status !== 'done' && dayOfTask(t) === ms).sort(sortTasks);
 }
 
-// Every word of the query must appear in the title (case-insensitive).
+// Every word of the query must appear in the title or label (case-insensitive).
 function matchesQuery(t) {
     const words = st.query.toLowerCase().split(/\s+/).filter(Boolean);
-    const title = String(t.title).toLowerCase();
+    const title = (t.title + ' ' + (t.label || '')).toLowerCase();
     return words.every(w => title.indexOf(w) >= 0);
 }
 
@@ -268,6 +285,7 @@ function circleFor(t, sec) {
 
 function chipsFor(t, sec) {
     const c = [];
+    if (t.label) c.push('<span class="chip lbl"><i style="background:hsl(' + t.labelHue + ' 65% 65%)"></i>' + esc(t.label) + '</span>');
     if (sec === 'expired') {
         const days = Math.max(1, Math.round((todayStart() - dayStart(minDate(t))) / DAY));
         c.push('<span class="chip red">' + (days === 1 ? 'yesterday' : days + 'd overdue') + '</span>');
@@ -1395,12 +1413,12 @@ window.app = {
     setData(raw, meta) {
         const res = raw && raw.data ? raw.data.result : null;
         const rows = Array.isArray(res) ? res : [];
+        meta = meta || {};
         st.tasks = rows
             .map(r => (Array.isArray(r) ? r[0] : r))
             .filter(p => p && typeof p === 'object')
-            .map(normTask)
+            .map(p => normTask(p, meta.labelKey))
             .filter(t => t.id != null);
-        meta = meta || {};
         if (meta.start) st.bounds = { start: meta.start, end: meta.end, end2: meta.end2, until: meta.until || addDays(weekStart(meta.start), 14) };
         st.done = (Array.isArray(meta.done) ? meta.done : []).map(d => ({
             id: d.id, uuid: d.uuid || '', title: d.title || '', links: [], modifiedAt: num(d.modifiedAt)

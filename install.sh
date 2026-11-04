@@ -280,6 +280,7 @@ return {
     graph = $(lua_string "$GRAPH"),
     dashboardPage = $DASHBOARD_VALUE,   -- false hides the button
     -- openHotkey = { {"cmd", "alt"}, "L" },
+    -- labelProperty = "project",   -- task property shown as a label; false hides it
 }
 EOF
         CONFIG_STATUS="created $(tilde "$USER_CONFIG")"

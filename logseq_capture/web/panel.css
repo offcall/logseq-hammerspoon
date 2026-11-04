@@ -384,6 +384,7 @@ button.chip:hover { color: var(--text); background: var(--hover); }
 .chip.red { color: var(--red); background: rgba(255,107,94,.12); }
 .chip.orange { color: var(--orange); background: rgba(245,165,36,.12); }
 .chip.blue { color: var(--blue-text); background: rgba(10,132,255,.12); }
+.chip.lbl i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; vertical-align: 1px; }
 
 .acts {
     flex: 0 0 auto;

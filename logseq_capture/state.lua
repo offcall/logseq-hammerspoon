@@ -68,6 +68,7 @@ _G.logseqCapture = {
 
     cache = nil,
     done = nil,
+    labelIdent = nil,   -- nil = not looked up yet, false = no label
 }
 
 local S = _G.logseqCapture

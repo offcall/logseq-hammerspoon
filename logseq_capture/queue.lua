@@ -5,6 +5,7 @@
 -- ============================================================
 
 local S = require("logseq_capture.state")
+local config = require("logseq_capture.config")
 local util = require("logseq_capture.util")
 local cli = require("logseq_capture.cli")
 local bridge = require("logseq_capture.bridge")
@@ -64,7 +65,51 @@ function M.tasksQueryArgs(query, untilMs)
 end
 
 
+-- Resolves config.LABEL_PROPERTY to its ident once; the next pump runs the refresh.
+local function makeLabelLookupJob()
+    return {
+        kind = "refresh",
+        args = {
+            "query",
+            "--query", filter.LABEL_QUERY,
+            "--inputs", hs.json.encode({ config.LABEL_PROPERTY:lower() }),
+        },
+        cb = function(ok, raw, decoded, message)
+            if not ok then
+                jsPanel("app.setLoading(false)")
+                jsPanel("app.setError(" .. hs.json.encode({ message = message or "label lookup failed" }) .. ")")
+                return
+            end
+
+            S.refreshWanted = true
+
+            local result = type(decoded.data) == "table" and decoded.data.result
+            local ident = type(result) == "table" and result[1]
+
+            if type(ident) == "string" then
+                ident = ident:gsub("^:", "")
+            end
+
+            if filter.isStatusIdent(ident) then
+                S.labelIdent = ident
+            else
+                log("label property not found:", config.LABEL_PROPERTY)
+                S.labelIdent = false
+            end
+        end,
+    }
+end
+
+
 local function makeRefreshJob()
+    if S.labelIdent == nil then
+        if type(config.LABEL_PROPERTY) == "string" and config.LABEL_PROPERTY ~= "" then
+            return makeLabelLookupJob()
+        end
+
+        S.labelIdent = false
+    end
+
     local start = dayStartMs(0)
     local finish = dayStartMs(1)
     local finish2 = dayStartMs(2)

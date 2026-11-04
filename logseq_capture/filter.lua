@@ -10,6 +10,7 @@
 -- ============================================================
 
 local config = require("logseq_capture.config")
+local S = require("logseq_capture.state")
 
 local M = {}
 
@@ -45,9 +46,24 @@ M.STATUSES_QUERY = [=[
  [?v :block/title ?title]]
 ]=]
 
+-- Ident of the property named ?name (lowercase), e.g. "user.property/Project-f_EBzV1Q".
+-- Only ref properties: the label is pulled as {ident [:block/title]}.
+M.LABEL_QUERY = [=[
+[:find [?ident ...]
+ :in $ ?name
+ :where
+ [?p :block/tags :logseq.class/Property]
+ [?p :db/valueType :db.type/ref]
+ [?p :block/title ?title]
+ [(clojure.string/lower-case ?title) ?lower]
+ [(= ?lower ?name)]
+ [?p :db/ident ?ident]]
+]=]
+
 -- Every dated task before ?until + every Doing task, in ONE query.
 -- ?until = end of the calendar grid: Monday of the week after next
 -- (local time, epoch ms). The list mode filters to tomorrow in JS.
+-- LABEL_PULL becomes a pull of the label property (or nothing).
 local TEMPLATE = [=[
 [:find (pull ?task [:db/id
                     :block/uuid
@@ -57,7 +73,8 @@ local TEMPLATE = [=[
                     :logseq.property/scheduled
                     {:logseq.property/status [:db/ident]}
                     {:logseq.property/priority [:db/ident]}
-                    {:block/refs [:block/uuid :block/title]}])
+                    {:block/refs [:block/uuid :block/title]}
+                    LABEL_PULL])
  :in $ ?until
  :where
  (or-join [?task]
@@ -130,7 +147,8 @@ function M.buildFromStatuses(filter)
     -- Function replacements: no % escaping in the inserted text.
     return (TEMPLATE
         :gsub("STATUS_IDENTS", function() return table.concat(idents, " ") end)
-        :gsub("NO_STATUS_CLAUSE", function() return filter.noStatusAsTodo and NO_STATUS_CLAUSE or "" end))
+        :gsub("NO_STATUS_CLAUSE", function() return filter.noStatusAsTodo and NO_STATUS_CLAUSE or "" end)
+        :gsub("LABEL_PULL", function() return S.labelIdent and ("{:" .. S.labelIdent .. " [:block/title]}") or "" end))
 end
 
 

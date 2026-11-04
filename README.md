@@ -39,6 +39,7 @@ return {
     graph = "My graph",
     dashboardPage = "Dashboard",              -- any page; false hides the button
     openHotkey = { {"cmd", "alt"}, "L" },     -- optional
+    labelProperty = "project",                -- task property shown as a label; false hides it
 }
 ```
 

@@ -3,7 +3,8 @@
 -- Optional ~/.hammerspoon/logseq_capture_config.lua returning a table,
 -- e.g. return { graph = "Work", dashboardPage = false }
 -- Keys: logseq (CLI path), graph, dashboardPage (false hides the
--- button), openHotkey. Missing keys use the defaults below.
+-- button), openHotkey, labelProperty (task property shown as a label,
+-- false hides labels). Missing keys use the defaults below.
 -- ============================================================
 
 local CONFIG_FILE = hs.configdir .. "/logseq_capture_config.lua"
@@ -41,6 +42,7 @@ local M = {}
 M.LOGSEQ = setting("logseq", os.getenv("HOME") .. "/.local/bin/logseq")
 M.GRAPH = setting("graph", "Personal")
 M.DASHBOARD_PAGE = setting("dashboardPage", "Dashboard")
+M.LABEL_PROPERTY = setting("labelProperty", "project")
 
 M.WIDTH = 460
 M.MIN_HEIGHT = 150

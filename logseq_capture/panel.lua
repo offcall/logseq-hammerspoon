@@ -60,6 +60,7 @@ function M.applyData()
         end2 = S.cache.end2,
         ["until"] = S.cache["until"],
         done = S.done.items,
+        labelKey = S.labelIdent or nil,
     })
 
     jsPanel("app.setData(" .. S.cache.raw .. "," .. meta .. ")")
