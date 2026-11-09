@@ -91,14 +91,22 @@ function M.start(args, callback)
     local finished = false
     local task
     local watchdog
-    local outChunks, errChunks = {}, {}
 
-    -- Read output while the task runs: a reader that waits for exit deadlocks
-    -- once the CLI fills the 64 KB pipe buffer.
-    local function stream(_, stdout, stderr)
-        if stdout and stdout ~= "" then outChunks[#outChunks + 1] = stdout end
-        if stderr and stderr ~= "" then errChunks[#errChunks + 1] = stderr end
-        return true
+    -- Output goes to temp files, read after exit: a pipe deadlocks once the
+    -- CLI fills its 64 KB buffer, and streamed chunks can arrive after the
+    -- exit callback or split a UTF-8 character.
+    local outPath, errPath = os.tmpname(), os.tmpname()
+
+    local function readAndRemove(path)
+        local file = io.open(path, "rb")
+        local data = file and file:read("*a") or ""
+
+        if file then
+            file:close()
+        end
+
+        os.remove(path)
+        return data
     end
 
     local function finish(code, stdout, stderr)
@@ -107,8 +115,13 @@ function M.start(args, callback)
         end
 
         finished = true
-        stdout = table.concat(outChunks) .. (stdout or "")
-        stderr = table.concat(errChunks) .. (stderr or "")
+        stdout = readAndRemove(outPath) .. (stdout or "")
+        -- Own messages (timeout, start failure) first: the toast is cut at 220 chars.
+        local errFile = readAndRemove(errPath)
+        stderr = stderr or ""
+        if errFile ~= "" then
+            stderr = stderr ~= "" and (stderr .. "\n" .. errFile) or errFile
+        end
 
         if watchdog then
             watchdog:stop()
@@ -162,7 +175,17 @@ function M.start(args, callback)
     end
 
     if S.env then
-        task = hs.task.new(LOGSEQ, finish, stream, full)
+        -- sh only adds the redirects; paths and args stay positional, unquoted.
+        local argv = {
+            "-c", 'out=$1 err=$2; shift 2; exec "$@" >"$out" 2>"$err"',
+            "sh", outPath, errPath, LOGSEQ,
+        }
+
+        for _, arg in ipairs(full) do
+            argv[#argv + 1] = arg
+        end
+
+        task = hs.task.new("/bin/sh", finish, argv)
 
         if task then
             task:setEnvironment(S.env)
@@ -175,10 +198,12 @@ function M.start(args, callback)
             parts[#parts + 1] = shellQuote(arg)
         end
 
+        parts[#parts + 1] = ">" .. shellQuote(outPath)
+        parts[#parts + 1] = "2>" .. shellQuote(errPath)
+
         task = hs.task.new(
             USER_SHELL,
             finish,
-            stream,
             { "-l", "-i", "-c", table.concat(parts, " ") }
         )
     end
