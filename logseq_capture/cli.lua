@@ -91,6 +91,15 @@ function M.start(args, callback)
     local finished = false
     local task
     local watchdog
+    local outChunks, errChunks = {}, {}
+
+    -- Read output while the task runs: a reader that waits for exit deadlocks
+    -- once the CLI fills the 64 KB pipe buffer.
+    local function stream(_, stdout, stderr)
+        if stdout and stdout ~= "" then outChunks[#outChunks + 1] = stdout end
+        if stderr and stderr ~= "" then errChunks[#errChunks + 1] = stderr end
+        return true
+    end
 
     local function finish(code, stdout, stderr)
         if finished then
@@ -98,8 +107,8 @@ function M.start(args, callback)
         end
 
         finished = true
-        stdout = stdout or ""
-        stderr = stderr or ""
+        stdout = table.concat(outChunks) .. (stdout or "")
+        stderr = table.concat(errChunks) .. (stderr or "")
 
         if watchdog then
             watchdog:stop()
@@ -153,7 +162,7 @@ function M.start(args, callback)
     end
 
     if S.env then
-        task = hs.task.new(LOGSEQ, finish, full)
+        task = hs.task.new(LOGSEQ, finish, stream, full)
 
         if task then
             task:setEnvironment(S.env)
@@ -169,6 +178,7 @@ function M.start(args, callback)
         task = hs.task.new(
             USER_SHELL,
             finish,
+            stream,
             { "-l", "-i", "-c", table.concat(parts, " ") }
         )
     end
